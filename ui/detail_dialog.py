@@ -4,10 +4,11 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLabel,
                              QGroupBox, QTabWidget, QTableWidget, QTableWidgetItem,
                              QHeaderView, QMessageBox, QFileDialog, QInputDialog)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtGui import QFont
 from db.database import DatabaseManager
 import os
 import json
+from ui.theme import THEME
 
 class DetailDialog(QDialog):
     """产品详情弹窗 (V2.0 - CM2增强版)"""
@@ -46,18 +47,18 @@ class DetailDialog(QDialog):
         
         # 生命周期状态徽章
         state = self.product_data.get('lifecycle_state', 'draft')
-        badge_color = "#FAAD14" # Orange for Draft/Review
+        badge_color = THEME["warning"]
         state_text = "草稿"
         
         if state == 'released':
-            badge_color = "#52C41A" # Green
+            badge_color = THEME["success"]
             state_text = "已发布"
         elif state == 'obsolete':
-            badge_color = "#F5222D" # Red
+            badge_color = THEME["danger"]
             state_text = "已废弃"
         elif state == 'review':
-             badge_color = "#1890FF" # Blue
-             state_text = "审核中"
+            badge_color = THEME["accent"]
+            state_text = "审核中"
             
         state_badge = QLabel(state_text)
         state_badge.setStyleSheet(f"""
@@ -95,10 +96,10 @@ class DetailDialog(QDialog):
             footer_layout.addWidget(btn_submit)
         elif state == 'review':
             btn_approve = QPushButton("批准发布")
-            btn_approve.setStyleSheet("background-color: #52C41A; color: white;")
+            btn_approve.setObjectName("SuccessButton")
             btn_approve.clicked.connect(lambda: self.change_lifecycle('released'))
             btn_reject = QPushButton("驳回")
-            btn_reject.setStyleSheet("background-color: #F5222D; color: white;")
+            btn_reject.setObjectName("DangerButton")
             btn_reject.clicked.connect(lambda: self.change_lifecycle('draft'))
             footer_layout.addWidget(btn_approve)
             footer_layout.addWidget(btn_reject)
@@ -111,6 +112,7 @@ class DetailDialog(QDialog):
         
         self.btn_close = QPushButton("关闭")
         self.btn_close.setFixedSize(100, 35)
+        self.btn_close.setObjectName("GhostButton")
         self.btn_close.clicked.connect(self.accept)
         footer_layout.addWidget(self.btn_close)
         
@@ -145,8 +147,12 @@ class DetailDialog(QDialog):
             tech_form = QFormLayout()
             tech_fields = [
                 ("图号", "drawing_number"), ("图纸版本", "drawing_version"),
-                ("软件版本", "software_version"), ("固件版本", "firmware_version"),
-                ("硬件配置", "hardware_config"), ("生效日期", "effective_date")
+                ("软件版本/构建", "software_version"), ("固件版本/构建", "firmware_version"),
+                ("硬件配置", "hardware_config"), ("需求基线", "req_baseline"),
+                ("接口基线", "icd_version"), ("BOM版本", "bom_version"),
+                ("PCB版本", "pcb_version"), ("硬件序列号", "hw_serial"),
+                ("生产批次", "production_batch"), ("测试状态", "test_status"),
+                ("合格状态", "qual_status"), ("生效日期", "effective_date")
             ]
             for label, key in tech_fields:
                 tech_form.addRow(f"<b>{label}:</b>", QLabel(str(tech_status.get(key, "—"))))
@@ -163,7 +169,6 @@ class DetailDialog(QDialog):
         # 工具栏
         toolbar = QHBoxLayout()
         btn_create = QPushButton("创建基线快照")
-        btn_create.setStyleSheet("background-color: #1890FF; color: white;")
         btn_create.clicked.connect(self.create_baseline)
         toolbar.addWidget(btn_create)
         toolbar.addStretch()
@@ -217,16 +222,25 @@ class DetailDialog(QDialog):
             for change in change_history:
                 change_item = QLabel()
                 type_badge = {
-                    'create': '<span style="background:#52C41A;color:white;padding:2px 8px;border-radius:3px;">创建</span>',
-                    'update': '<span style="background:#1890FF;color:white;padding:2px 8px;border-radius:3px;">更新</span>',
-                    'lifecycle': '<span style="background:#722ED1;color:white;padding:2px 8px;border-radius:3px;">状态</span>'
+                    'create': (
+                        f"<span style=\"background:{THEME['success']};color:white;"
+                        "padding:2px 8px;border-radius:3px;\">创建</span>"
+                    ),
+                    'update': (
+                        f"<span style=\"background:{THEME['accent']};color:white;"
+                        "padding:2px 8px;border-radius:3px;\">更新</span>"
+                    ),
+                    'lifecycle': (
+                        f"<span style=\"background:{THEME['warning']};color:#3a2c16;"
+                        "padding:2px 8px;border-radius:3px;\">状态</span>"
+                    ),
                 }.get(change['change_type'], change['change_type'])
                 
                 change_item.setText(f"""
-                    <div style="border-left: 3px solid #ddd; padding-left: 10px; margin-bottom: 10px;">
+                    <div style="border-left: 3px solid {THEME['border']}; padding-left: 10px; margin-bottom: 10px;">
                         <div>{type_badge} <b>{change['created_at']}</b></div>
-                        <div style="color:#333;margin-top:5px;">{change['change_content']}</div>
-                        <div style="color:#999;font-size:12px;">操作人: {change['operator']}</div>
+                        <div style="color:{THEME['text']};margin-top:5px;">{change['change_content']}</div>
+                        <div style="color:{THEME['text_muted']};font-size:12px;">操作人: {change['operator']}</div>
                     </div>
                 """)
                 change_item.setTextFormat(Qt.RichText)

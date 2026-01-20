@@ -45,6 +45,16 @@ class DatabaseManager:
                 software_version TEXT,
                 firmware_version TEXT,
                 hardware_config TEXT,
+                req_baseline TEXT,
+                icd_version TEXT,
+                bom_version TEXT,
+                pcb_version TEXT,
+                hw_serial TEXT,
+                production_batch TEXT,
+                sw_build TEXT,
+                fw_build TEXT,
+                test_status TEXT,
+                qual_status TEXT,
                 change_order TEXT,
                 change_description TEXT,
                 effective_date DATE,
@@ -101,6 +111,25 @@ class DatabaseManager:
             # 迁移旧数据状态
             cursor.execute("UPDATE product SET lifecycle_state = 'draft' WHERE status = 'draft'")
             cursor.execute("UPDATE product SET lifecycle_state = 'released' WHERE status = 'active'")
+
+        # 扩展: 补齐 tech_status 字段
+        cursor.execute("PRAGMA table_info(tech_status)")
+        tech_columns = [column[1] for column in cursor.fetchall()]
+        extra_columns = [
+            ("req_baseline", "TEXT"),
+            ("icd_version", "TEXT"),
+            ("bom_version", "TEXT"),
+            ("pcb_version", "TEXT"),
+            ("hw_serial", "TEXT"),
+            ("production_batch", "TEXT"),
+            ("sw_build", "TEXT"),
+            ("fw_build", "TEXT"),
+            ("test_status", "TEXT"),
+            ("qual_status", "TEXT"),
+        ]
+        for col_name, col_type in extra_columns:
+            if col_name not in tech_columns:
+                cursor.execute(f"ALTER TABLE tech_status ADD COLUMN {col_name} {col_type}")
         
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_product_code ON product(product_code)')
@@ -148,19 +177,39 @@ class DatabaseManager:
             conn.close()
 
     def search_products(self, keyword=""):
-        """模糊搜索产品"""
+        """模糊搜索产品（包含最新技术状态）"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        query = "SELECT * FROM product WHERE status = 'active'"
+        query = """
+            SELECT p.*
+            FROM product p
+            LEFT JOIN tech_status ts ON ts.id = (
+                SELECT id FROM tech_status
+                WHERE product_id = p.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            )
+            WHERE p.status = 'active'
+        """
         params = []
         
         if keyword:
-            query += " AND (product_code LIKE ? OR product_name LIKE ?)"
+            query += """
+                AND (
+                    p.product_code LIKE ? OR p.product_name LIKE ? OR p.batch_number LIKE ? OR p.model LIKE ?
+                    OR ts.drawing_number LIKE ? OR ts.drawing_version LIKE ?
+                    OR ts.software_version LIKE ? OR ts.firmware_version LIKE ?
+                    OR ts.hardware_config LIKE ? OR ts.req_baseline LIKE ? OR ts.icd_version LIKE ?
+                    OR ts.bom_version LIKE ? OR ts.pcb_version LIKE ? OR ts.hw_serial LIKE ?
+                    OR ts.production_batch LIKE ? OR ts.test_status LIKE ? OR ts.qual_status LIKE ?
+                    OR ts.change_order LIKE ? OR ts.change_description LIKE ?
+                )
+            """
             like_kw = f"%{keyword}%"
-            params.extend([like_kw, like_kw])
+            params.extend([like_kw] * 19)
             
-        query += " ORDER BY created_at DESC"
+        query += " ORDER BY p.created_at DESC"
         
         cursor.execute(query, params)
         rows = cursor.fetchall()
@@ -195,8 +244,10 @@ class DatabaseManager:
             INSERT INTO tech_status (
                 product_id, drawing_number, drawing_version, 
                 software_version, firmware_version, hardware_config,
+                req_baseline, icd_version, bom_version, pcb_version,
+                hw_serial, production_batch, test_status, qual_status,
                 change_order, change_description, effective_date, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             product_id,
             data.get('drawing_number', ''),
@@ -204,6 +255,14 @@ class DatabaseManager:
             data.get('software_version', ''),
             data.get('firmware_version', ''),
             data.get('hardware_config', ''),
+            data.get('req_baseline', ''),
+            data.get('icd_version', ''),
+            data.get('bom_version', ''),
+            data.get('pcb_version', ''),
+            data.get('hw_serial', ''),
+            data.get('production_batch', ''),
+            data.get('test_status', ''),
+            data.get('qual_status', ''),
             data.get('change_order', ''),
             data.get('change_description', ''),
             data.get('effective_date', ''),
@@ -219,7 +278,10 @@ class DatabaseManager:
         """根据产品ID获取技术状态"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM tech_status WHERE product_id = ?", (product_id,))
+        cursor.execute(
+            "SELECT * FROM tech_status WHERE product_id = ? ORDER BY created_at DESC LIMIT 1",
+            (product_id,),
+        )
         row = cursor.fetchone()
         conn.close()
         return dict(row) if row else None
@@ -236,6 +298,14 @@ class DatabaseManager:
                 software_version = ?,
                 firmware_version = ?,
                 hardware_config = ?,
+                req_baseline = ?,
+                icd_version = ?,
+                bom_version = ?,
+                pcb_version = ?,
+                hw_serial = ?,
+                production_batch = ?,
+                test_status = ?,
+                qual_status = ?,
                 change_order = ?,
                 change_description = ?,
                 effective_date = ?
@@ -246,6 +316,14 @@ class DatabaseManager:
             data.get('software_version', ''),
             data.get('firmware_version', ''),
             data.get('hardware_config', ''),
+            data.get('req_baseline', ''),
+            data.get('icd_version', ''),
+            data.get('bom_version', ''),
+            data.get('pcb_version', ''),
+            data.get('hw_serial', ''),
+            data.get('production_batch', ''),
+            data.get('test_status', ''),
+            data.get('qual_status', ''),
             data.get('change_order', ''),
             data.get('change_description', ''),
             data.get('effective_date', ''),
@@ -337,9 +415,16 @@ class DatabaseManager:
             SELECT 
                 p.id, p.product_code, p.product_name, p.batch_number, p.model, p.status, p.created_at,
                 ts.drawing_number, ts.drawing_version, ts.software_version, ts.firmware_version,
-                ts.hardware_config, ts.change_order, ts.change_description, ts.effective_date
+                ts.hardware_config, ts.req_baseline, ts.icd_version, ts.bom_version, ts.pcb_version,
+                ts.hw_serial, ts.production_batch, ts.test_status, ts.qual_status,
+                ts.change_order, ts.change_description, ts.effective_date
             FROM product p
-            LEFT JOIN tech_status ts ON p.id = ts.product_id
+            LEFT JOIN tech_status ts ON ts.id = (
+                SELECT id FROM tech_status
+                WHERE product_id = p.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            )
             WHERE p.status != 'inactive'
         '''
         params = []

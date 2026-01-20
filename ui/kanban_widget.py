@@ -1,15 +1,16 @@
-from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, 
-                             QScrollArea, QFrame, QSizePolicy, QApplication, QPushButton)
-from PyQt5.QtCore import Qt, pyqtSignal, QMimeData, QPoint
-from PyQt5.QtGui import QDrag, QPixmap, QPainter, QColor
+from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
+                             QScrollArea, QFrame, QApplication, QPushButton)
+from PyQt5.QtCore import Qt, pyqtSignal, QMimeData
+from PyQt5.QtGui import QDrag, QPixmap
 from db.database import DatabaseManager
+from ui.theme import THEME
 
 class KanbanCard(QFrame):
     """看板卡片 - 高仿 Teambition 风格"""
     
     clicked = pyqtSignal(int)
     
-    def __init__(self, data, state_color="#1890FF"):
+    def __init__(self, data, state_color="#e07a5f"):
         super().__init__()
         self.data = data
         self.state_color = state_color
@@ -19,15 +20,15 @@ class KanbanCard(QFrame):
         self.setFixedWidth(260) # 固定宽度以保持列整齐
         self.setStyleSheet(f"""
             KanbanCard {{
-                background-color: #ffffff;
-                border: 1px solid #dcdfe6;
-                border-radius: 6px;
-                border-top: 3px solid {self.state_color};
+                background-color: #fffdf9;
+                border: 1px solid {THEME['border']};
+                border-radius: 8px;
+                border-top: 4px solid {self.state_color};
             }}
             KanbanCard:hover {{
-                border-color: #3370ff;
+                border-color: {THEME['accent']};
             }}
-            QLabel {{ border: none; background: transparent; color: #262626; }}
+            QLabel {{ border: none; background: transparent; color: {THEME['text']}; }}
         """)
         self.init_ui()
         
@@ -38,12 +39,12 @@ class KanbanCard(QFrame):
         
         # 1. 标题区
         title_lbl = QLabel(f"{self.data.get('product_code', '')}")
-        title_lbl.setStyleSheet("color: #8c8c8c; font-size: 11px; font-weight: bold;")
+        title_lbl.setStyleSheet(f"color: {THEME['text_muted']}; font-size: 11px; font-weight: 600;")
         layout.addWidget(title_lbl)
         
         content_lbl = QLabel(self.data.get('product_name', '无名称'))
         content_lbl.setWordWrap(True)
-        content_lbl.setStyleSheet("color: #262626; font-size: 13px; font-weight: bold; line-height: 1.4;")
+        content_lbl.setStyleSheet("color: #1f2430; font-size: 13px; font-weight: 600; line-height: 1.4;")
         layout.addWidget(content_lbl)
         
         # 2. 标签区
@@ -53,25 +54,30 @@ class KanbanCard(QFrame):
         # 状态标签
         state_name = "进行中"
         state_icon = "🕒"
-        state_bg = "#e6f7ff"
-        state_text = "#1890ff"
+        state_bg = "#f6ece3"
+        state_text = "#7a6d5a"
         
         lf_state = str(self.data.get('lifecycle_state', 'draft'))
         if 'draft' in lf_state:
             state_name = "待办"
             state_icon = "📝"
-            state_bg = "#f5f5f5"
-            state_text = "#8c8c8c"
+            state_bg = "#eee6db"
+            state_text = "#7a6d5a"
         elif 'review' in lf_state:
             state_name = "审核"
             state_icon = "👀"
-            state_bg = "#fff7e6"
-            state_text = "#fa8c16"
+            state_bg = "#fbe8d5"
+            state_text = "#b46b2a"
         elif 'released' in lf_state:
             state_name = "发布"
             state_icon = "✅"
-            state_bg = "#f6ffed"
-            state_text = "#52c41a"
+            state_bg = "#e6f2e9"
+            state_text = "#2f6f4b"
+        elif 'obsolete' in lf_state:
+            state_name = "废弃"
+            state_icon = "⛔"
+            state_bg = "#f3e3e6"
+            state_text = "#a24755"
         
         tag = QLabel(f"{state_icon} {state_name}")
         tag.setStyleSheet(f"""
@@ -83,7 +89,7 @@ class KanbanCard(QFrame):
         
         # 模拟头像
         avatar = QLabel("👤")
-        avatar.setStyleSheet("font-size: 14px; color: #bfbfbf;")
+        avatar.setStyleSheet(f"font-size: 14px; color: {THEME['text_muted']};")
         tags_layout.addWidget(avatar)
         
         layout.addLayout(tags_layout)
@@ -91,7 +97,7 @@ class KanbanCard(QFrame):
         # 3. 分割线
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("background-color: #f0f0f0; border: none; height: 1px;")
+        line.setStyleSheet(f"background-color: {THEME['border']}; border: none; height: 1px;")
         layout.addWidget(line)
         
         # 4. 底部信息
@@ -102,9 +108,9 @@ class KanbanCard(QFrame):
         ver = self.data.get('drawing_version', 'V1.0')
         
         l1 = QLabel(f"📅 {created_at}")
-        l1.setStyleSheet("color: #bfbfbf; font-size: 11px;")
+        l1.setStyleSheet(f"color: {THEME['text_muted']}; font-size: 11px;")
         l2 = QLabel(f"v{ver}")
-        l2.setStyleSheet("color: #3370ff; font-size: 11px; font-weight: bold;")
+        l2.setStyleSheet(f"color: {THEME['accent']}; font-size: 11px; font-weight: 600;")
         
         footer.addWidget(l1)
         footer.addStretch()
@@ -126,7 +132,10 @@ class KanbanCard(QFrame):
         mime = QMimeData()
         mime.setText(str(self.data['id']))
         drag.setMimeData(mime)
-        self.setStyleSheet(f"background-color: #f0f0f0; border: 1px dashed #999; border-top: 3px solid {self.state_color};")
+        self.setStyleSheet(
+            f"background-color: #f0ede6; border: 1px dashed {THEME['border']}; "
+            f"border-top: 4px solid {self.state_color};"
+        )
         
         pixmap = QPixmap(self.size())
         self.render(pixmap)
@@ -151,7 +160,7 @@ class KanbanColumn(QWidget):
     card_dropped = pyqtSignal(int, str)
     card_clicked = pyqtSignal(int)
     
-    def __init__(self, title, state_key, color="#1890FF"):
+    def __init__(self, title, state_key, color="#e07a5f"):
         super().__init__()
         # ... (rest of init)
         self.title = title
@@ -167,25 +176,27 @@ class KanbanColumn(QWidget):
         
         # 列头
         header = QWidget()
-        header.setStyleSheet(f"background-color: {self.color}; border-top-left-radius: 4px; border-top-right-radius: 4px;")
+        header.setStyleSheet(
+            f"background-color: {self.color}; border-top-left-radius: 6px; border-top-right-radius: 6px;"
+        )
         header.setFixedHeight(3)
         layout.addWidget(header)
         
         title_box = QWidget()
-        title_box.setStyleSheet("background-color: #f5f7fa; border-bottom: 1px solid #dcdfe6;")
+        title_box.setStyleSheet(f"background-color: #fbf8f2; border-bottom: 1px solid {THEME['border']};")
         tb_layout = QHBoxLayout(title_box)
         tb_layout.setContentsMargins(15, 12, 15, 12)
         
         lbl_title = QLabel(self.title)
-        lbl_title.setStyleSheet("font-weight: bold; font-size: 14px; color: #1a1a1a;")
+        lbl_title.setStyleSheet("font-weight: 600; font-size: 14px; color: #1f2430;")
         self.lbl_count = QLabel("0")
         self.lbl_count.setStyleSheet("""
-            background: rgba(0,0,0,0.06); 
-            border-radius: 10px; 
-            padding: 2px 8px; 
-            font-size: 11px; 
-            color: #8c8c8c;
-            font-weight: bold;
+            background: #ebe5dd;
+            border-radius: 10px;
+            padding: 2px 8px;
+            font-size: 11px;
+            color: #6b6f7a;
+            font-weight: 600;
         """)
         
         tb_layout.addWidget(lbl_title)
@@ -197,10 +208,12 @@ class KanbanColumn(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll.setStyleSheet("QScrollArea { border: none; background-color: #f5f7fa; }")
+        self.scroll.setStyleSheet("QScrollArea { border: none; background-color: #fbf8f2; }")
         
         self.card_container = QWidget()
-        self.card_container.setStyleSheet("background-color: #f5f7fa; border-right: 1px solid #dcdfe6;")
+        self.card_container.setStyleSheet(
+            f"background-color: #fbf8f2; border-right: 1px solid {THEME['border']};"
+        )
         self.card_layout = QVBoxLayout(self.card_container)
         self.card_layout.setContentsMargins(10, 10, 10, 10)
         self.card_layout.setSpacing(10)
@@ -260,24 +273,18 @@ class KanbanWidget(QWidget):
         # 顶部工具栏
         toolbar = QWidget()
         toolbar.setFixedHeight(60)
-        toolbar.setStyleSheet("background-color: #ffffff; border-bottom: 1px solid #dcdfe6;")
+        toolbar.setStyleSheet(f"background-color: #ffffff; border-bottom: 1px solid {THEME['border']};")
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(20, 0, 20, 0)
         
         title = QLabel("项目任务看板")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1a1a1a; border: none;")
+        title.setStyleSheet("font-size: 16px; font-weight: 600; color: #1f2430; border: none;")
         tb_layout.addWidget(title)
         tb_layout.addStretch()
         
         btn_refresh = QPushButton("刷新数据")
         btn_refresh.setFixedSize(80, 32)
-        btn_refresh.setStyleSheet("""
-            QPushButton { 
-                background-color: #ffffff; border: 1px solid #dcdfe6; 
-                border-radius: 4px; color: #606266; font-size: 12px;
-            }
-            QPushButton:hover { border-color: #3370ff; color: #3370ff; background-color: #f5f7fa; }
-        """)
+        btn_refresh.setObjectName("GhostButton")
         btn_refresh.clicked.connect(self.load_data)
         tb_layout.addWidget(btn_refresh)
         main_layout.addWidget(toolbar)
@@ -289,10 +296,10 @@ class KanbanWidget(QWidget):
         board_layout.setContentsMargins(20, 20, 20, 20)
         board_layout.setSpacing(20)
         
-        self.col_draft = KanbanColumn("待办 / 草稿", "draft", "#FAAD14")
-        self.col_review = KanbanColumn("审核中", "review", "#1890FF")
-        self.col_released = KanbanColumn("已发布", "released", "#52C41A")
-        self.col_obsolete = KanbanColumn("已废弃", "obsolete", "#F5222D")
+        self.col_draft = KanbanColumn("待办 / 草稿", "draft", "#d1a54c")
+        self.col_review = KanbanColumn("审核中", "review", "#3b6ea5")
+        self.col_released = KanbanColumn("已发布", "released", THEME["success"])
+        self.col_obsolete = KanbanColumn("已废弃", "obsolete", THEME["danger"])
         
         # 连接信号
         for col in [self.col_draft, self.col_review, self.col_released, self.col_obsolete]:
@@ -316,7 +323,12 @@ class KanbanWidget(QWidget):
         query_sql = """
             SELECT p.*, ts.drawing_version 
             FROM product p 
-            LEFT JOIN tech_status ts ON p.id = ts.product_id 
+            LEFT JOIN tech_status ts ON ts.id = (
+                SELECT id FROM tech_status
+                WHERE product_id = p.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            )
             WHERE p.status != 'inactive' OR p.lifecycle_state = 'obsolete'
         """
         conn = self.db.get_connection()

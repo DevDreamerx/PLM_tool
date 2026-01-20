@@ -31,6 +31,7 @@ class SettingsWidget(QWidget):
         self.backup_dir_edit = QLineEdit(self.backup_manager.config.get('backup_dir', './backups'))
         self.backup_dir_edit.setReadOnly(True)
         btn_browse = QPushButton("浏览...")
+        btn_browse.setObjectName("GhostButton")
         btn_browse.clicked.connect(self.select_backup_dir)
         backup_dir_layout.addWidget(self.backup_dir_edit)
         backup_dir_layout.addWidget(btn_browse)
@@ -57,12 +58,12 @@ class SettingsWidget(QWidget):
         
         self.btn_backup_now = QPushButton("立即备份")
         self.btn_backup_now.setFixedSize(120, 40)
-        self.btn_backup_now.setStyleSheet("background-color: #52C41A; color: white; font-weight: bold; border-radius: 4px;")
+        self.btn_backup_now.setObjectName("SuccessButton")
         self.btn_backup_now.clicked.connect(self.backup_now)
         
         self.btn_restore = QPushButton("恢复备份")
         self.btn_restore.setFixedSize(120, 40)
-        self.btn_restore.setStyleSheet("background-color: #FAAD14; color: white; font-weight: bold; border-radius: 4px;")
+        self.btn_restore.setObjectName("WarningButton")
         self.btn_restore.clicked.connect(self.restore_backup)
         
         btn_layout.addWidget(self.btn_backup_now)

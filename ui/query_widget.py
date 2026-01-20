@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, 
-                             QPushButton, QTableWidget, QTableWidgetItem, 
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
+                             QPushButton, QTableWidget, QTableWidgetItem,
                              QHeaderView, QMessageBox)
 from db.database import DatabaseManager
+from ui.theme import THEME
 from ui.detail_dialog import DetailDialog
 
 class QueryWidget(QWidget):
@@ -19,7 +20,7 @@ class QueryWidget(QWidget):
         # 1. 搜索栏
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("请输入产品代号或名称...")
+        self.search_input.setPlaceholderText("支持产品信息与技术状态关键词搜索...")
         self.search_input.returnPressed.connect(self.perform_search)
         
         self.btn_search = QPushButton("搜索")
@@ -70,16 +71,23 @@ class QueryWidget(QWidget):
             
             # 添加操作按钮
             btn_widget = QWidget()
+            btn_widget.setStyleSheet("background: transparent;")
             btn_layout = QHBoxLayout(btn_widget)
             btn_layout.setContentsMargins(5, 2, 5, 2)
             
             btn_view = QPushButton("查看")
-            btn_view.setStyleSheet("color: blue; border: none;")
+            btn_view.setFlat(True)
+            btn_view.setStyleSheet(
+                f"background: transparent; color: {THEME['accent']}; border: none; font-weight: 600;"
+            )
             btn_view.setCursor(Qt.PointingHandCursor)
             btn_view.clicked.connect(lambda checked, pid=row_data['id']: self.view_detail(pid))
             
             btn_delete = QPushButton("删除")
-            btn_delete.setStyleSheet("color: red; border: none;")
+            btn_delete.setFlat(True)
+            btn_delete.setStyleSheet(
+                f"background: transparent; color: {THEME['danger']}; border: none; font-weight: 600;"
+            )
             btn_delete.setCursor(Qt.PointingHandCursor)
             btn_delete.clicked.connect(lambda checked, pid=row_data['id']: self.delete_record(pid))
             

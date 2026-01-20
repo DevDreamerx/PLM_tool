@@ -6,6 +6,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib
 import platform
+from ui.theme import THEME
 
 # 解决中文乱码问题
 def setup_matplotlib_fonts():
@@ -40,9 +41,9 @@ class ReportWidget(QWidget):
         # 1. 统计卡片区
         stats_layout = QHBoxLayout()
         
-        self.total_card = self.create_stat_card("总记录数", "0", "#1890FF")
-        self.active_card = self.create_stat_card("正式记录", "0", "#52C41A")
-        self.draft_card = self.create_stat_card("草稿数", "0", "#FAAD14")
+        self.total_card = self.create_stat_card("总记录数", "0", THEME["accent"])
+        self.active_card = self.create_stat_card("正式记录", "0", THEME["success"])
+        self.draft_card = self.create_stat_card("草稿数", "0", THEME["warning"])
         
         stats_layout.addWidget(self.total_card)
         stats_layout.addWidget(self.active_card)
@@ -55,6 +56,7 @@ class ReportWidget(QWidget):
         chart_layout = QVBoxLayout()
         
         self.figure = Figure(figsize=(8, 4))
+        self.figure.set_facecolor("#fffdf9")
         self.canvas = FigureCanvas(self.figure)
         chart_layout.addWidget(self.canvas)
         
@@ -76,11 +78,12 @@ class ReportWidget(QWidget):
         btn_layout = QHBoxLayout()
         self.btn_export = QPushButton("导出全部数据")
         self.btn_export.setFixedSize(150, 40)
-        self.btn_export.setStyleSheet("background-color: #52C41A; color: white; font-weight: bold; border-radius: 4px;")
+        self.btn_export.setObjectName("SuccessButton")
         self.btn_export.clicked.connect(self.export_all_data)
         
         self.btn_refresh = QPushButton("刷新")
         self.btn_refresh.setFixedSize(100, 40)
+        self.btn_refresh.setObjectName("GhostButton")
         self.btn_refresh.clicked.connect(self.refresh_data)
         
         btn_layout.addStretch()
@@ -99,17 +102,17 @@ class ReportWidget(QWidget):
         card = QGroupBox()
         card.setStyleSheet(f"""
             QGroupBox {{
-                background-color: white;
-                border: 2px solid {color};
-                border-radius: 8px;
-                padding: 15px;
+                background-color: #fffdf9;
+                border: 1px solid {color};
+                border-radius: 12px;
+                padding: 14px;
             }}
         """)
         
         layout = QVBoxLayout()
         
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 14px; color: #666;")
+        title_label.setStyleSheet(f"font-size: 14px; color: {THEME['text_muted']};")
         title_label.setAlignment(Qt.AlignCenter)
         
         value_label = QLabel(value)
@@ -151,7 +154,7 @@ class ReportWidget(QWidget):
         self.figure.clear()
         ax = self.figure.add_subplot(111)
         
-        bars = ax.bar(models, counts, color='#1890FF', alpha=0.7)
+        bars = ax.bar(models, counts, color=THEME["accent"], alpha=0.85)
         ax.set_xlabel('产品型号', fontsize=12)
         ax.set_ylabel('数量', fontsize=12)
         ax.set_title('产品型号分布', fontsize=14, fontweight='bold')
@@ -201,13 +204,15 @@ class ReportWidget(QWidget):
                 headers = [
                     "ID", "产品代号", "产品名称", "批次编号", "所属型号",
                     "图号", "图纸版本", "软件版本", "固件版本", "硬件配置",
+                    "需求基线", "接口基线", "BOM版本", "PCB版本", "硬件序列号",
+                    "生产批次", "测试状态", "合格状态",
                     "更改单号", "更改内容", "生效日期", "状态", "创建时间"
                 ]
                 
                 for col_num, header in enumerate(headers, 1):
                     cell = ws.cell(row=1, column=col_num, value=header)
                     cell.font = Font(bold=True, color="FFFFFF")
-                    cell.fill = PatternFill(start_color="1890FF", end_color="1890FF", fill_type="solid")
+                    cell.fill = PatternFill(start_color="E07A5F", end_color="E07A5F", fill_type="solid")
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                 
                 for row_num, item in enumerate(data, 2):
@@ -221,12 +226,20 @@ class ReportWidget(QWidget):
                     ws.cell(row=row_num, column=8, value=item.get('software_version', ''))
                     ws.cell(row=row_num, column=9, value=item.get('firmware_version', ''))
                     ws.cell(row=row_num, column=10, value=item.get('hardware_config', ''))
-                    ws.cell(row=row_num, column=11, value=item.get('change_order', ''))
-                    ws.cell(row=row_num, column=12, value=item.get('change_description', ''))
-                    ws.cell(row=row_num, column=13, value=item.get('effective_date', ''))
+                    ws.cell(row=row_num, column=11, value=item.get('req_baseline', ''))
+                    ws.cell(row=row_num, column=12, value=item.get('icd_version', ''))
+                    ws.cell(row=row_num, column=13, value=item.get('bom_version', ''))
+                    ws.cell(row=row_num, column=14, value=item.get('pcb_version', ''))
+                    ws.cell(row=row_num, column=15, value=item.get('hw_serial', ''))
+                    ws.cell(row=row_num, column=16, value=item.get('production_batch', ''))
+                    ws.cell(row=row_num, column=17, value=item.get('test_status', ''))
+                    ws.cell(row=row_num, column=18, value=item.get('qual_status', ''))
+                    ws.cell(row=row_num, column=19, value=item.get('change_order', ''))
+                    ws.cell(row=row_num, column=20, value=item.get('change_description', ''))
+                    ws.cell(row=row_num, column=21, value=item.get('effective_date', ''))
                     status_text = "草稿" if item.get('status') == 'draft' else "正式"
-                    ws.cell(row=row_num, column=14, value=status_text)
-                    ws.cell(row=row_num, column=15, value=item.get('created_at', ''))
+                    ws.cell(row=row_num, column=22, value=status_text)
+                    ws.cell(row=row_num, column=23, value=item.get('created_at', ''))
                 
                 for column in ws.columns:
                     max_length = 0

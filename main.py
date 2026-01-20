@@ -7,12 +7,14 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import QApplication
 from ui.main_window import MainWindow
+from ui.theme import app_stylesheet
 
 def main():
     app = QApplication(sys.argv)
     
     # 设置全局样式
     app.setStyle("Fusion")
+    app.setStyleSheet(app_stylesheet())
     
     window = MainWindow()
     window.show()
