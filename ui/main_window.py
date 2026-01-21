@@ -10,6 +10,8 @@ from PyQt5.QtWidgets import (
     QFrame,
     QStatusBar,
     QMessageBox,
+    QSizePolicy,
+    QLayout,
 )
 from PyQt5.QtCore import Qt
 from db.database import DatabaseManager
@@ -29,21 +31,25 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("技术状态管理助手 - Demo")
         self.resize(1280, 820)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.backup_manager = BackupManager()
         self.db = DatabaseManager()
         self.init_ui()
 
     def init_ui(self):
         main_widget = QWidget()
+        main_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setCentralWidget(main_widget)
 
         main_layout = QHBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+        main_layout.setSizeConstraint(QLayout.SetNoConstraint)
 
         nav_frame = QFrame()
         nav_frame.setObjectName("NavFrame")
         nav_frame.setFixedWidth(220)
+        nav_frame.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         nav_layout = QVBoxLayout(nav_frame)
         nav_layout.setContentsMargins(16, 18, 16, 16)
         nav_layout.setSpacing(10)
@@ -64,7 +70,7 @@ class MainWindow(QMainWindow):
         self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.nav_list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
 
-        self.page_titles = ["录入", "查询", "看板", "报表", "设置"]
+        self.page_titles = ["缺失看板", "查询", "录入", "报表", "设置"]
         for title in self.page_titles:
             self.nav_list.addItem(title)
 
@@ -78,9 +84,11 @@ class MainWindow(QMainWindow):
 
         content_frame = QFrame()
         content_frame.setObjectName("ContentFrame")
+        content_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         content_layout = QVBoxLayout(content_frame)
         content_layout.setContentsMargins(24, 16, 24, 16)
         content_layout.setSpacing(12)
+        content_layout.setSizeConstraint(QLayout.SetNoConstraint)
 
         header_frame = QFrame()
         header_frame.setObjectName("HeaderFrame")
@@ -96,16 +104,17 @@ class MainWindow(QMainWindow):
 
         self.workspace = QStackedWidget()
         self.workspace.setObjectName("Workspace")
+        self.workspace.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        self.entry_page = EntryWidget()
-        self.query_page = QueryWidget()
         self.kanban_page = KanbanWidget()
+        self.query_page = QueryWidget()
+        self.entry_page = EntryWidget()
         self.report_page = ReportWidget()
         self.settings_page = SettingsWidget()
 
-        self.workspace.addWidget(self.entry_page)
-        self.workspace.addWidget(self.query_page)
         self.workspace.addWidget(self.kanban_page)
+        self.workspace.addWidget(self.query_page)
+        self.workspace.addWidget(self.entry_page)
         self.workspace.addWidget(self.report_page)
         self.workspace.addWidget(self.settings_page)
 
@@ -116,6 +125,7 @@ class MainWindow(QMainWindow):
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
+        self.status.setSizeGripEnabled(True)
         self.status.showMessage("就绪")
 
     def switch_page(self, index):

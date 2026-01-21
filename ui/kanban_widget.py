@@ -1,9 +1,11 @@
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-                             QScrollArea, QFrame, QApplication, QPushButton)
+                             QScrollArea, QFrame, QApplication, QPushButton,
+                             QFileDialog, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal, QMimeData
 from PyQt5.QtGui import QDrag, QPixmap
 from db.database import DatabaseManager
 from ui.theme import THEME
+from utils.excel_importer import ExcelImporter
 
 class KanbanCard(QFrame):
     """看板卡片 - 高仿 Teambition 风格"""
@@ -116,6 +118,16 @@ class KanbanCard(QFrame):
         footer.addStretch()
         footer.addWidget(l2)
         layout.addLayout(footer)
+
+        # 5. 缺失提示
+        missing = self.data.get("missing_fields", [])
+        if missing:
+            missing_label = QLabel("缺失: " + " / ".join(missing))
+            missing_label.setWordWrap(True)
+            missing_label.setStyleSheet(
+                f"color: {THEME['danger']}; font-size: 11px; font-weight: 600;"
+            )
+            layout.addWidget(missing_label)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -262,6 +274,7 @@ class KanbanWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.db = DatabaseManager()
+        self.importer = ExcelImporter()
         self.setStyleSheet("background-color: #ffffff;")
         self.init_ui()
         
@@ -277,10 +290,16 @@ class KanbanWidget(QWidget):
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(20, 0, 20, 0)
         
-        title = QLabel("项目任务看板")
+        title = QLabel("更改单缺失状态看板")
         title.setStyleSheet("font-size: 16px; font-weight: 600; color: #1f2430; border: none;")
         tb_layout.addWidget(title)
         tb_layout.addStretch()
+
+        btn_import = QPushButton("导入Excel")
+        btn_import.setFixedSize(96, 32)
+        btn_import.setObjectName("GhostButton")
+        btn_import.clicked.connect(self.import_excel)
+        tb_layout.addWidget(btn_import)
         
         btn_refresh = QPushButton("刷新数据")
         btn_refresh.setFixedSize(80, 32)
@@ -319,10 +338,13 @@ class KanbanWidget(QWidget):
         self.col_released.clear_cards()
         self.col_obsolete.clear_cards()
         
-        # 获取所有数据 (使用 V2.0 兼容的查询)
+        # 获取最新技术状态并筛选缺失项
         query_sql = """
-            SELECT p.*, ts.drawing_version 
-            FROM product p 
+            SELECT p.*,
+                ts.drawing_number, ts.drawing_version, ts.software_version, ts.firmware_version,
+                ts.req_baseline, ts.icd_version, ts.bom_version, ts.pcb_version,
+                ts.test_status, ts.qual_status, ts.change_order, ts.change_description
+            FROM product p
             LEFT JOIN tech_status ts ON ts.id = (
                 SELECT id FROM tech_status
                 WHERE product_id = p.id
@@ -338,6 +360,12 @@ class KanbanWidget(QWidget):
         conn.close()
         
         for p in products:
+            if not self._has_change_order(p):
+                continue
+            missing_fields = self._missing_fields(p)
+            if not missing_fields:
+                continue
+            p["missing_fields"] = missing_fields
             state = p.get('lifecycle_state', 'draft')
             if state == 'draft':
                 self.col_draft.add_card(p)
@@ -357,4 +385,107 @@ class KanbanWidget(QWidget):
             self.db.insert_change_log(tech_status['id'], "lifecycle", f"看板拖拽更新状态为: {new_state}")
             
         # 重新加载
+        self.load_data()
+
+    def _has_change_order(self, data):
+        return bool(data.get("change_order") or data.get("change_description"))
+
+    def _missing_fields(self, data):
+        required_fields = [
+            ("drawing_number", "图号"),
+            ("drawing_version", "图纸版本"),
+            ("software_version", "软件版本"),
+            ("firmware_version", "固件版本"),
+            ("req_baseline", "需求基线"),
+            ("icd_version", "接口基线"),
+            ("bom_version", "BOM版本"),
+            ("pcb_version", "PCB版本"),
+            ("test_status", "测试状态"),
+            ("qual_status", "合格状态"),
+        ]
+        missing = []
+        for key, label in required_fields:
+            value = data.get(key)
+            if value is None or str(value).strip() == "":
+                missing.append(label)
+        return missing
+
+    def import_excel(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择Excel文件", "", "Excel Files (*.xlsx)"
+        )
+        if not file_path:
+            return
+
+        try:
+            parsed = self.importer.parse(file_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "导入失败", f"解析Excel失败:\n{exc}")
+            return
+
+        rows = parsed["rows"]
+        if not rows:
+            QMessageBox.information(self, "导入提示", "未识别到有效数据行")
+            return
+
+        created_products = 0
+        updated_products = 0
+        inserted_status = 0
+        skipped_rows = 0
+        errors = []
+
+        for idx, row in enumerate(rows, 1):
+            product_code = row.get("product_code")
+            product_name = row.get("product_name") or product_code or "未命名"
+            batch_number = row.get("batch_number") or "未填写"
+            model = row.get("model") or "其他"
+
+            if not product_code:
+                skipped_rows += 1
+                errors.append(f"第{idx}行缺少产品代号")
+                continue
+
+            product = self.db.get_product_by_code(product_code)
+            if product:
+                if any([row.get("product_name"), row.get("batch_number"), row.get("model")]):
+                    self.db.update_product_basic(
+                        product["id"],
+                        {
+                            "product_name": product_name,
+                            "batch_number": batch_number,
+                            "model": model,
+                        },
+                    )
+                    updated_products += 1
+                product_id = product["id"]
+            else:
+                try:
+                    product_id = self.db.insert_product(
+                        {
+                            "product_code": product_code,
+                            "product_name": product_name,
+                            "batch_number": batch_number,
+                            "model": model,
+                            "status": "active",
+                        }
+                    )
+                    created_products += 1
+                except Exception as exc:
+                    skipped_rows += 1
+                    errors.append(f"第{idx}行产品创建失败: {exc}")
+                    continue
+
+            tech_status_id = self.db.insert_tech_status(product_id, row)
+            if row.get("change_order") or row.get("change_description"):
+                log_content = f"Excel导入更新 {product_code}"
+                self.db.insert_change_log(tech_status_id, "update", log_content)
+            inserted_status += 1
+
+        message = (
+            f"导入完成\n新增产品: {created_products}\n更新产品: {updated_products}"
+            f"\n新增技术状态: {inserted_status}\n跳过行数: {skipped_rows}"
+        )
+        if errors:
+            message += "\n\n错误示例:\n" + "\n".join(errors[:5])
+        QMessageBox.information(self, "导入结果", message)
         self.load_data()

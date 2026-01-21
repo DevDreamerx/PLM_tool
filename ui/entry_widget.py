@@ -1,7 +1,20 @@
 # -*- coding: utf-8 -*-
-from PyQt5.QtWidgets import (QWidget, QLabel, QLineEdit, QTextEdit,
-                             QComboBox, QDateEdit, QPushButton,
-                             QGridLayout, QHBoxLayout, QMessageBox, QGroupBox, QVBoxLayout)
+from PyQt5.QtWidgets import (
+    QWidget,
+    QLabel,
+    QLineEdit,
+    QTextEdit,
+    QComboBox,
+    QDateEdit,
+    QPushButton,
+    QGridLayout,
+    QHBoxLayout,
+    QMessageBox,
+    QGroupBox,
+    QVBoxLayout,
+    QScrollArea,
+    QSizePolicy,
+)
 from PyQt5.QtCore import QDate
 from db.database import DatabaseManager
 
@@ -15,6 +28,7 @@ class EntryWidget(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
         
         # 标题
         title = QLabel("技术状态录入")
@@ -205,8 +219,21 @@ class EntryWidget(QWidget):
         
         main_layout.addLayout(btn_layout)
         main_layout.addStretch()
-        
-        self.setLayout(main_layout)
+
+        container = QWidget()
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        container.setLayout(main_layout)
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setWidget(container)
+
+        outer_layout = QVBoxLayout()
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll_area)
+
+        self.setLayout(outer_layout)
         self.refresh_product_list()
 
     def save_draft(self):

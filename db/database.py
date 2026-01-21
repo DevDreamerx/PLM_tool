@@ -225,6 +225,36 @@ class DatabaseManager:
         conn.close()
         return dict(row) if row else None
 
+    def get_product_by_code(self, product_code):
+        """根据产品代号获取产品详情"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM product WHERE product_code = ?", (product_code,))
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def update_product_basic(self, product_id, data):
+        """更新产品基础信息"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE product SET
+                product_name = ?,
+                batch_number = ?,
+                model = ?,
+                updated_at = ?
+            WHERE id = ?
+        ''', (
+            data.get('product_name', ''),
+            data.get('batch_number', ''),
+            data.get('model', ''),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            product_id
+        ))
+        conn.commit()
+        conn.close()
+
     def delete_product(self, product_id):
         """删除产品 (软删除)"""
         conn = self.get_connection()
