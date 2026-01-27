@@ -2,11 +2,12 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QGroupBox, QCheckBox, QSpinBox,
                              QLineEdit, QFileDialog, QMessageBox, QFormLayout, QListWidget)
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal, QSignalBlocker
 from utils.backup import BackupManager
 import os
 
 class SettingsWidget(QWidget):
+    font_scale_changed = pyqtSignal(float)
     """系统设置界面"""
     
     def __init__(self):
@@ -16,6 +17,20 @@ class SettingsWidget(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout()
+
+        ui_group = QGroupBox("界面设置")
+        ui_layout = QFormLayout()
+
+        self.font_scale_spin = QSpinBox()
+        self.font_scale_spin.setRange(80, 150)
+        self.font_scale_spin.setSingleStep(10)
+        self.font_scale_spin.setSuffix("%")
+        self.font_scale_spin.setValue(int(round(self.backup_manager.config.get("ui_font_scale", 1.0) * 100)))
+        self.font_scale_spin.valueChanged.connect(self.on_font_scale_changed)
+
+        ui_layout.addRow("字体缩放:", self.font_scale_spin)
+        ui_group.setLayout(ui_layout)
+        main_layout.addWidget(ui_group)
         
         # 1. 备份设置组
         backup_group = QGroupBox("备份设置")
@@ -101,9 +116,18 @@ class SettingsWidget(QWidget):
             'auto_backup': self.auto_backup_check.isChecked(),
             'backup_dir': self.backup_dir_edit.text(),
             'backup_keep_days': self.keep_days_spin.value(),
-            'db_path': self.backup_manager.config.get('db_path', 'tsm_data.db')
+            'db_path': self.backup_manager.config.get('db_path', 'tsm_data.db'),
+            'ui_font_scale': self.font_scale_spin.value() / 100.0,
         }
         self.backup_manager.save_config(config)
+
+    def on_font_scale_changed(self, _value):
+        self.save_settings()
+        self.font_scale_changed.emit(self.font_scale_spin.value() / 100.0)
+
+    def set_font_scale(self, scale):
+        with QSignalBlocker(self.font_scale_spin):
+            self.font_scale_spin.setValue(int(round(float(scale) * 100)))
 
     def select_backup_dir(self):
         """选择备份目录"""

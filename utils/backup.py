@@ -17,7 +17,8 @@ class BackupManager:
             "auto_backup": True,
             "backup_dir": "./backups",
             "backup_keep_days": 7,
-            "db_path": "tsm_data.db"
+            "db_path": "tsm_data.db",
+            "ui_font_scale": 1.0,
         }
         
         if os.path.exists(self.config_file):

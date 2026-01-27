@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
 from PyQt5.QtCore import Qt, pyqtSignal, QMimeData
 from PyQt5.QtGui import QDrag, QPixmap, QColor
 from db.database import DatabaseManager
-from ui.theme import THEME
+from ui.theme import THEME, scale_px
 from utils.excel_importer import ExcelImporter
 
 def rgba_color(hex_color, alpha):
@@ -49,13 +49,15 @@ class KanbanCard(QFrame):
         
         # 1. 标题区
         title_lbl = QLabel(f"{self.data.get('product_code', '')}")
-        title_lbl.setStyleSheet(f"color: {THEME['text_muted']}; font-size: 13px; font-weight: 700;")
+        title_lbl.setStyleSheet(
+            f"color: {THEME['text_muted']}; font-size: {scale_px(13)}px; font-weight: 700;"
+        )
         layout.addWidget(title_lbl)
         
         content_lbl = QLabel(self.data.get('product_name', '无名称'))
         content_lbl.setWordWrap(True)
         content_lbl.setStyleSheet(
-            f"color: {THEME['text']}; font-size: 16px; font-weight: 700; line-height: 1.4;"
+            f"color: {THEME['text']}; font-size: {scale_px(16)}px; font-weight: 700; line-height: 1.4;"
         )
         layout.addWidget(content_lbl)
         
@@ -77,7 +79,7 @@ class KanbanCard(QFrame):
         tag = QLabel(f"{state_icon} {state_name}")
         tag.setStyleSheet(f"""
             background-color: {state_bg}; color: {state_text};
-            padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;
+            padding: 3px 8px; border-radius: 6px; font-size: {scale_px(11)}px; font-weight: 600;
         """)
         tag.setMinimumHeight(20)
         tags_layout.addWidget(tag)
@@ -85,7 +87,7 @@ class KanbanCard(QFrame):
         
         # 模拟头像
         avatar = QLabel("👤")
-        avatar.setStyleSheet(f"font-size: 13px; color: {THEME['text_muted']};")
+        avatar.setStyleSheet(f"font-size: {scale_px(13)}px; color: {THEME['text_muted']};")
         tags_layout.addWidget(avatar)
         
         layout.addLayout(tags_layout)
@@ -104,9 +106,9 @@ class KanbanCard(QFrame):
         ver = self.data.get('drawing_version', 'V1.0')
         
         l1 = QLabel(f"创建: {created_at}")
-        l1.setStyleSheet(f"color: {THEME['text_muted']}; font-size: 11px;")
+        l1.setStyleSheet(f"color: {THEME['text_muted']}; font-size: {scale_px(11)}px;")
         l2 = QLabel(f"版本 {ver}")
-        l2.setStyleSheet(f"color: {THEME['accent']}; font-size: 11px; font-weight: 600;")
+        l2.setStyleSheet(f"color: {THEME['accent']}; font-size: {scale_px(11)}px; font-weight: 600;")
         
         footer.addWidget(l1)
         footer.addStretch()
@@ -120,7 +122,7 @@ class KanbanCard(QFrame):
             missing_label = QLabel(f"{prefix}: " + " / ".join(missing))
             missing_label.setWordWrap(True)
             missing_label.setStyleSheet(
-                f"color: {THEME['danger']}; font-size: 11px; font-weight: 600;"
+                f"color: {THEME['danger']}; font-size: {scale_px(11)}px; font-weight: 600;"
             )
             layout.addWidget(missing_label)
 
@@ -203,14 +205,15 @@ class KanbanColumn(QWidget):
         tb_layout.setContentsMargins(16, 12, 16, 12)
         
         lbl_title = QLabel(self.title)
-        lbl_title.setStyleSheet(f"font-weight: 600; font-size: 14px; color: {THEME['text']};")
+        self.lbl_title = lbl_title
+        lbl_title.setStyleSheet(f"font-weight: 600; font-size: {scale_px(14)}px; color: {THEME['text']};")
         self.lbl_count = QLabel("0")
         self.lbl_count.setStyleSheet(
             f"""
             background: {self.col_badge_bg};
             border-radius: 10px;
             padding: 2px 8px;
-            font-size: 11px;
+            font-size: {scale_px(11)}px;
             color: {self.color};
             font-weight: 600;
         """
@@ -236,6 +239,22 @@ class KanbanColumn(QWidget):
         
         self.scroll.setWidget(self.card_container)
         layout.addWidget(self.scroll)
+
+    def apply_font_scale(self, scale):
+        if hasattr(self, "lbl_title"):
+            self.lbl_title.setStyleSheet(
+                f"font-weight: 600; font-size: {scale_px(14, scale)}px; color: {THEME['text']};"
+            )
+        self.lbl_count.setStyleSheet(
+            f"""
+            background: {self.col_badge_bg};
+            border-radius: 10px;
+            padding: 2px 8px;
+            font-size: {scale_px(11, scale)}px;
+            color: {self.color};
+            font-weight: 600;
+        """
+        )
 
     def add_card(self, card_data):
         card = KanbanCard(card_data, self.color)
@@ -309,6 +328,12 @@ class KanbanWidget(QWidget):
         main_layout.addWidget(board_container)
         
         # 加载数据
+        self.load_data()
+
+    def apply_font_scale(self, scale):
+        for col in (self.col_missing_change, self.col_not_implemented):
+            if hasattr(col, "apply_font_scale"):
+                col.apply_font_scale(scale)
         self.load_data()
 
     def load_data(self):

@@ -1,0 +1,7 @@
+{
+  "auto_backup": true,
+  "backup_dir": "./backups",
+  "backup_keep_days": 7,
+  "db_path": "tsm_data.db",
+  "ui_font_scale": 1.5
+}

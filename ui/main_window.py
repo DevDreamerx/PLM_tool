@@ -12,8 +12,11 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QSizePolicy,
     QLayout,
+    QAction,
+    QApplication,
 )
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeySequence
 from db.database import DatabaseManager
 from ui.entry_widget import EntryWidget
 from ui.query_widget import QueryWidget
@@ -21,6 +24,7 @@ from ui.kanban_widget import KanbanWidget
 from ui.report_widget import ReportWidget
 from ui.settings_widget import SettingsWidget
 from ui.detail_dialog import DetailDialog
+from ui.theme import app_stylesheet, set_font_scale
 from utils.backup import BackupManager
 
 
@@ -33,8 +37,10 @@ class MainWindow(QMainWindow):
         self.resize(1280, 820)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.backup_manager = BackupManager()
+        self.ui_font_scale = float(self.backup_manager.config.get("ui_font_scale", 1.0))
         self.db = DatabaseManager()
         self.init_ui()
+        self.apply_font_scale(self.ui_font_scale, save=False)
 
     def init_ui(self):
         main_widget = QWidget()
@@ -111,6 +117,7 @@ class MainWindow(QMainWindow):
         self.entry_page = EntryWidget()
         self.report_page = ReportWidget()
         self.settings_page = SettingsWidget()
+        self.settings_page.font_scale_changed.connect(self.apply_font_scale)
 
         self.workspace.addWidget(self.kanban_page)
         self.workspace.addWidget(self.query_page)
@@ -128,7 +135,53 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.status.setSizeGripEnabled(True)
+        self.init_font_zoom_actions()
         self.status.showMessage("就绪")
+
+    def init_font_zoom_actions(self):
+        self.font_scale_label = QLabel()
+        self.status.addPermanentWidget(self.font_scale_label)
+
+        self.action_zoom_in = QAction("字体放大", self)
+        self.action_zoom_in.setShortcuts([QKeySequence.ZoomIn, QKeySequence("Ctrl+=")])
+        self.action_zoom_in.triggered.connect(lambda: self.change_font_scale(0.1))
+
+        self.action_zoom_out = QAction("字体缩小", self)
+        self.action_zoom_out.setShortcuts([QKeySequence.ZoomOut])
+        self.action_zoom_out.triggered.connect(lambda: self.change_font_scale(-0.1))
+
+        self.action_zoom_reset = QAction("字体重置", self)
+        self.action_zoom_reset.setShortcut(QKeySequence("Ctrl+0"))
+        self.action_zoom_reset.triggered.connect(lambda: self.apply_font_scale(1.0))
+
+        for action in (self.action_zoom_in, self.action_zoom_out, self.action_zoom_reset):
+            self.addAction(action)
+
+    def change_font_scale(self, delta):
+        self.apply_font_scale(self.ui_font_scale + float(delta))
+
+    def apply_font_scale(self, scale, save=True):
+        self.ui_font_scale = set_font_scale(scale)
+
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(app_stylesheet(self.ui_font_scale))
+
+        if hasattr(self, "font_scale_label"):
+            self.font_scale_label.setText(f"字体: {int(round(self.ui_font_scale * 100))}%")
+
+        if hasattr(self, "settings_page") and hasattr(self.settings_page, "set_font_scale"):
+            self.settings_page.set_font_scale(self.ui_font_scale)
+
+        for page in ("kanban_page", "report_page"):
+            widget = getattr(self, page, None)
+            if widget is not None and hasattr(widget, "apply_font_scale"):
+                widget.apply_font_scale(self.ui_font_scale)
+
+        if save:
+            config = dict(self.backup_manager.config)
+            config["ui_font_scale"] = self.ui_font_scale
+            self.backup_manager.save_config(config)
 
     def switch_page(self, index):
         if index < 0:

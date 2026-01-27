@@ -6,7 +6,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib
 import platform
-from ui.theme import THEME
+from ui.theme import THEME, scale_px
 
 # 解决中文乱码问题
 def setup_matplotlib_fonts():
@@ -33,6 +33,7 @@ class ReportWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.db = DatabaseManager()
+        self._stat_labels = []
         self.init_ui()
 
     def init_ui(self):
@@ -112,19 +113,29 @@ class ReportWidget(QWidget):
         layout = QVBoxLayout()
         
         title_label = QLabel(title)
-        title_label.setStyleSheet(f"font-size: 14px; color: {THEME['text_muted']};")
+        title_label.setStyleSheet(f"font-size: {scale_px(14)}px; color: {THEME['text_muted']};")
         title_label.setAlignment(Qt.AlignCenter)
         
         value_label = QLabel(value)
         value_label.setObjectName("value")
-        value_label.setStyleSheet(f"font-size: 32px; font-weight: bold; color: {color};")
+        value_label.setStyleSheet(f"font-size: {scale_px(32)}px; font-weight: bold; color: {color};")
         value_label.setAlignment(Qt.AlignCenter)
+        self._stat_labels.append((title_label, value_label, color))
         
         layout.addWidget(title_label)
         layout.addWidget(value_label)
         
         card.setLayout(layout)
         return card
+
+    def apply_font_scale(self, scale):
+        for title_label, value_label, color in getattr(self, "_stat_labels", []):
+            title_label.setStyleSheet(
+                f"font-size: {scale_px(14, scale)}px; color: {THEME['text_muted']};"
+            )
+            value_label.setStyleSheet(
+                f"font-size: {scale_px(32, scale)}px; font-weight: bold; color: {color};"
+            )
 
     def refresh_data(self):
         """刷新数据"""

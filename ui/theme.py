@@ -18,9 +18,45 @@ THEME = {
 }
 
 
-def app_stylesheet():
+DEFAULT_FONT_SCALE = 1.0
+MIN_FONT_SCALE = 0.8
+MAX_FONT_SCALE = 1.5
+_current_font_scale = DEFAULT_FONT_SCALE
+
+
+def clamp_font_scale(scale):
+    try:
+        scale = float(scale)
+    except Exception:
+        scale = DEFAULT_FONT_SCALE
+    return max(MIN_FONT_SCALE, min(MAX_FONT_SCALE, scale))
+
+
+def set_font_scale(scale):
+    global _current_font_scale
+    _current_font_scale = clamp_font_scale(scale)
+    return _current_font_scale
+
+
+def get_font_scale():
+    return _current_font_scale
+
+
+def scale_px(px, scale=None):
+    if scale is None:
+        scale = get_font_scale()
+    return max(1, int(round(int(px) * float(scale))))
+
+
+def scale_pt(pt, scale=None):
+    return scale_px(pt, scale)
+
+
+def app_stylesheet(font_scale=None):
     """Return the global stylesheet for the application."""
     palette = THEME
+    if font_scale is None:
+        font_scale = get_font_scale()
 
     return f"""
         QMainWindow {{
@@ -28,7 +64,7 @@ def app_stylesheet():
         }}
         QWidget {{
             font-family: "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-            font-size: 13px;
+            font-size: {scale_px(13, font_scale)}px;
             color: {palette['text']};
         }}
         #NavFrame {{
@@ -36,12 +72,12 @@ def app_stylesheet():
         }}
         #NavTitle {{
             color: #ffffff;     
-            font-size: 16px;
+            font-size: {scale_px(16, font_scale)}px;
             font-weight: 600;
         }}
         #NavSubtitle {{
             color: {palette['text_nav']};
-            font-size: 11px;
+            font-size: {scale_px(11, font_scale)}px;
         }}
         #NavList {{
             border: none;
@@ -70,11 +106,11 @@ def app_stylesheet():
             border-radius: 12px;
         }}
         #HeaderTitle {{
-            font-size: 18px;
+            font-size: {scale_px(18, font_scale)}px;
             font-weight: 600;
         }}
         QLabel#PageTitle {{
-            font-size: 20px;
+            font-size: {scale_px(20, font_scale)}px;
             font-weight: 600;
             color: {palette['text']};
         }}
