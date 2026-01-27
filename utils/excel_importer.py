@@ -19,13 +19,27 @@ def _similarity(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
 
+def _clean_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, (datetime, date)):
+        return value.strftime("%Y-%m-%d")
+    text = str(value).strip()
+    if text in {"——", "--", "-", "—"}:
+        return ""
+    return text
+
+
 class ExcelImporter:
     """Excel 导入工具（自动表头识别）"""
 
     def __init__(self):
+        self._multi_fields = {"change_description", "change_order"}
+        self._label_fields = {"change_description", "change_order"}
         self._synonyms = {
             "product_code": [
-                "产品代号", "代号", "产品代码", "物料编码", "产品编号", "产品号"
+                "产品代号", "代号", "产品代码", "物料编码", "产品编号", "产品号",
+                "产品型号"
             ],
             "product_name": [
                 "产品名称", "名称", "品名", "物料名称"
@@ -34,7 +48,8 @@ class ExcelImporter:
                 "批次编号", "批次号", "批次", "批号"
             ],
             "model": [
-                "型号", "产品型号", "机型", "型号类别"
+                "型号", "产品型号", "机型", "型号类别",
+                "所属机型"
             ],
             "drawing_number": [
                 "图号", "图纸号", "图样号", "图纸编号"
@@ -76,10 +91,14 @@ class ExcelImporter:
                 "合格状态", "放行状态", "鉴定状态", "合格评审"
             ],
             "change_order": [
-                "更改单号", "变更单号", "变更编号", "更改单号", "ecn", "eco"
+                "更改单号", "变更单号", "变更编号", "更改单号", "ecn", "eco",
+                "协调单号", "更改建议单号", "更改单号/技术通知单号/工艺更改单号"
             ],
             "change_description": [
-                "更改内容", "变更内容", "变更说明", "更改说明", "变更摘要"
+                "更改内容", "变更内容", "变更说明", "更改说明", "变更摘要",
+                "更改理由", "更改原因", "更改类别", "处理意见", "更改建议单涉及图样/文件", "涉及更改图样",
+                "更改人", "需落实产品编号", "已落实情况", "未落实产品编号", "工艺更改落实情况", "备注",
+                "所属阶段"
             ],
             "effective_date": [
                 "生效日期", "生效时间", "变更日期", "日期"
@@ -110,6 +129,8 @@ class ExcelImporter:
         # 特殊规则：生产批次优先
         if "生产" in header_value and "批次" in header_value:
             return "production_batch"
+        if "落实" in header_value and "产品编号" in header_value:
+            return "change_description"
         for field, synonyms in self._synonyms_norm.items():
             for syn in synonyms:
                 if not syn:
@@ -132,11 +153,16 @@ class ExcelImporter:
     def build_mapping(self, ws, header_row):
         mapping = {}
         for idx, cell in enumerate(ws[header_row], start=1):
-            header = _normalize(cell.value)
+            header_raw = "" if cell.value is None else str(cell.value).strip()
+            header = _normalize(header_raw)
             if not header:
                 continue
             field = self.match_field(header)
-            if field and field not in mapping:
+            if not field:
+                continue
+            if field in self._multi_fields:
+                mapping.setdefault(field, []).append((header_raw, idx))
+            elif field not in mapping:
                 mapping[field] = idx
         return mapping
 
@@ -151,11 +177,21 @@ class ExcelImporter:
             if all(cell is None or str(cell).strip() == "" for cell in row):
                 continue
             record = {}
-            for field, col_idx in mapping.items():
-                value = row[col_idx - 1] if col_idx - 1 < len(row) else None
-                if isinstance(value, (datetime, date)):
-                    value = value.strftime("%Y-%m-%d")
-                record[field] = "" if value is None else str(value).strip()
+            for field, col_info in mapping.items():
+                if isinstance(col_info, list):
+                    combined = []
+                    for header_raw, col_idx in col_info:
+                        value = row[col_idx - 1] if col_idx - 1 < len(row) else None
+                        value = _clean_value(value)
+                        if value:
+                            if field in self._label_fields and header_raw:
+                                combined.append(f"{header_raw}:{value}")
+                            else:
+                                combined.append(value)
+                    record[field] = "; ".join(combined)
+                else:
+                    value = row[col_info - 1] if col_info - 1 < len(row) else None
+                    record[field] = _clean_value(value)
             rows.append(record)
         return {
             "header_row": header_row,

@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
                              QPushButton, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QMessageBox)
+                             QHeaderView, QMessageBox, QFileDialog)
+from PyQt5.QtCore import Qt
+from openpyxl import Workbook
+import os
 from db.database import DatabaseManager
 from ui.theme import THEME
 from ui.detail_dialog import DetailDialog
@@ -90,9 +93,18 @@ class QueryWidget(QWidget):
             )
             btn_delete.setCursor(Qt.PointingHandCursor)
             btn_delete.clicked.connect(lambda checked, pid=row_data['id']: self.delete_record(pid))
+
+            btn_export = QPushButton("导出")
+            btn_export.setFlat(True)
+            btn_export.setStyleSheet(
+                f"background: transparent; color: {THEME['text']}; border: none; font-weight: 600;"
+            )
+            btn_export.setCursor(Qt.PointingHandCursor)
+            btn_export.clicked.connect(lambda checked, pid=row_data['id']: self.export_record(pid))
             
             btn_layout.addWidget(btn_view)
             btn_layout.addWidget(btn_delete)
+            btn_layout.addWidget(btn_export)
             self.table.setCellWidget(row_idx, 5, btn_widget)
 
     def view_detail(self, product_id):
@@ -118,4 +130,93 @@ class QueryWidget(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "删除失败", str(e))
 
-from PyQt5.QtCore import Qt
+    def export_record(self, product_id):
+        """导出单条记录为模板格式 Excel"""
+        product = self.db.get_product(product_id)
+        tech_status = self.db.get_tech_status(product_id)
+        if not product or not tech_status:
+            QMessageBox.warning(self, "导出提示", "未找到完整的产品或技术状态数据")
+            return
+
+        default_name = f"{product.get('product_code', 'export')}.xlsx"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存Excel文件", default_name, "Excel Files (*.xlsx)"
+        )
+        if not file_path:
+            return
+        if not file_path.endswith(".xlsx"):
+            file_path += ".xlsx"
+
+        try:
+            wb = Workbook()
+            ws = wb.active
+            headers = self._export_headers()
+            row_values = self._build_export_row(product, tech_status)
+            ws.append(headers)
+            ws.append([row_values.get(header, "") for header in headers])
+            wb.save(file_path)
+            QMessageBox.information(self, "导出成功", f"已导出: {file_path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "导出失败", f"导出Excel失败:\n{exc}")
+
+    def _export_headers(self):
+        return [
+            "产品型号",
+            "所属机型",
+            "产品名称",
+            "所属阶段",
+            "协调单号",
+            "更改建议单号",
+            "更改理由",
+            "更改建议单涉及图样/文件",
+            "更改单号/技术通知单号/工艺更改单号",
+            "涉及更改图样",
+            "更改类别",
+            "更改原因",
+            "更改人",
+            "处理意见",
+            "需落实产品编号",
+            "已落实情况",
+            "未落实产品编号",
+            "工艺更改落实情况",
+            "备注",
+        ]
+
+    def _extract_labeled_value(self, text, label):
+        if not text:
+            return ""
+        for part in str(text).split(";"):
+            part = part.strip()
+            if part.startswith(f"{label}:"):
+                return part[len(label) + 1:].strip()
+        return ""
+
+    def _build_export_row(self, product, tech_status):
+        change_order = tech_status.get("change_order", "")
+        change_desc = tech_status.get("change_description", "")
+        values = {
+            "产品型号": product.get("product_code", ""),
+            "所属机型": product.get("model", ""),
+            "产品名称": product.get("product_name", ""),
+            "所属阶段": self._extract_labeled_value(change_desc, "所属阶段"),
+            "协调单号": self._extract_labeled_value(change_order, "协调单号"),
+            "更改建议单号": self._extract_labeled_value(change_order, "更改建议单号"),
+            "更改理由": self._extract_labeled_value(change_desc, "更改理由"),
+            "更改建议单涉及图样/文件": self._extract_labeled_value(change_desc, "更改建议单涉及图样/文件"),
+            "更改单号/技术通知单号/工艺更改单号": self._extract_labeled_value(
+                change_order, "更改单号/技术通知单号/工艺更改单号"
+            ),
+            "涉及更改图样": self._extract_labeled_value(change_desc, "涉及更改图样"),
+            "更改类别": self._extract_labeled_value(change_desc, "更改类别"),
+            "更改原因": self._extract_labeled_value(change_desc, "更改原因"),
+            "更改人": self._extract_labeled_value(change_desc, "更改人"),
+            "处理意见": self._extract_labeled_value(change_desc, "处理意见"),
+            "需落实产品编号": self._extract_labeled_value(change_desc, "需落实产品编号"),
+            "已落实情况": self._extract_labeled_value(change_desc, "已落实情况"),
+            "未落实产品编号": self._extract_labeled_value(change_desc, "未落实产品编号"),
+            "工艺更改落实情况": self._extract_labeled_value(change_desc, "工艺更改落实情况"),
+            "备注": self._extract_labeled_value(change_desc, "备注"),
+        }
+        if not values["更改单号/技术通知单号/工艺更改单号"] and change_order:
+            values["更改单号/技术通知单号/工艺更改单号"] = change_order
+        return values

@@ -70,7 +70,7 @@ class MainWindow(QMainWindow):
         self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.nav_list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
 
-        self.page_titles = ["缺失看板", "查询", "录入", "报表", "设置"]
+        self.page_titles = ["待处理看板", "查询", "录入", "报表", "设置"]
         for title in self.page_titles:
             self.nav_list.addItem(title)
 
@@ -122,6 +122,8 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(content_frame)
 
         self.kanban_page.card_clicked.connect(self.open_detail_dialog)
+        self.entry_page.data_updated.connect(self.kanban_page.load_data)
+        self.entry_page.data_updated.connect(self.report_page.refresh_data)
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
