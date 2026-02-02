@@ -32,7 +32,7 @@ class DetailDialog(QDialog):
 
     def init_ui(self):
         main_layout = QVBoxLayout()
-        font_scale = get_font_scale()
+        self.font_scale = get_font_scale()
         
         # --- 顶部头部区域 ---
         header_widget = QWidget()
@@ -41,7 +41,7 @@ class DetailDialog(QDialog):
         # 产品标识
         title_font = QFont()
         title_font.setBold(True)
-        title_font.setPointSize(scale_pt(16, font_scale))
+        title_font.setPointSize(scale_pt(16, self.font_scale))
         
         title_label = QLabel(f"{self.product_data.get('product_code')} {self.product_data.get('product_name')}")
         title_label.setFont(title_font)
@@ -241,7 +241,7 @@ class DetailDialog(QDialog):
                     <div style="border-left: 3px solid {THEME['border']}; padding-left: 10px; margin-bottom: 10px;">
                         <div>{type_badge} <b>{change['created_at']}</b></div>
                         <div style="color:{THEME['text']};margin-top:5px;">{change['change_content']}</div>
-                        <div style="color:{THEME['text_muted']};font-size:{scale_px(12, font_scale)}px;">操作人: {change['operator']}</div>
+                        <div style="color:{THEME['text_muted']};font-size:{scale_px(12, self.font_scale)}px;">操作人: {change['operator']}</div>
                     </div>
                 """)
                 change_item.setTextFormat(Qt.RichText)

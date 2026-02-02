@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                              QScrollArea, QFrame, QApplication, QPushButton,
-                             QFileDialog, QMessageBox)
+                             QFileDialog, QMessageBox, QLineEdit)
 from PyQt5.QtCore import Qt, pyqtSignal, QMimeData
 from PyQt5.QtGui import QDrag, QPixmap, QColor
 from db.database import DatabaseManager
@@ -85,10 +85,24 @@ class KanbanCard(QFrame):
         tags_layout.addWidget(tag)
         tags_layout.addStretch()
         
-        # 模拟头像
+        # 模拟头像 + 责任人
+        change_desc = self.data.get("change_description", "")
+        owner = ""
+        if change_desc:
+            for part in change_desc.split(";"):
+                part = part.strip()
+                if part.startswith("更改人:"):
+                    owner = part[len("更改人:"):].strip()
+                    break
         avatar = QLabel("👤")
         avatar.setStyleSheet(f"font-size: {scale_px(13)}px; color: {THEME['text_muted']};")
         tags_layout.addWidget(avatar)
+        if owner and owner not in {"——", "--", "-", "—"}:
+            owner_label = QLabel(owner)
+            owner_label.setStyleSheet(
+                f"color: {THEME['text_muted']}; font-size: {scale_px(11)}px;"
+            )
+            tags_layout.addWidget(owner_label)
         
         layout.addLayout(tags_layout)
         
@@ -310,6 +324,28 @@ class KanbanWidget(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(12)
 
+        search_bar = QWidget()
+        search_layout = QHBoxLayout(search_bar)
+        search_layout.setContentsMargins(16, 6, 16, 0)
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("搜索产品代号/名称/批次/型号/图号")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self.load_data)
+        self.search_input.setStyleSheet(
+            f"""
+            QLineEdit {{
+                background: {THEME['bg_panel']};
+                border: 1px solid {THEME['border']};
+                border-radius: 10px;
+                padding: 6px 10px;
+                color: {THEME['text']};
+                font-size: {scale_px(12)}px;
+            }}
+            """
+        )
+        search_layout.addWidget(self.search_input)
+        main_layout.addWidget(search_bar)
+
         # 看板列布局容器
         board_container = QWidget()
         board_container.setStyleSheet(f"background-color: {THEME['bg_app']};")
@@ -362,21 +398,27 @@ class KanbanWidget(QWidget):
         products = [dict(row) for row in cursor.fetchall()]
         conn.close()
         
+        search_text = ""
+        if hasattr(self, "search_input"):
+            search_text = self.search_input.text().strip().lower()
+
         for p in products:
-            issue = self._classify_issue(p)
-            if not issue:
+            if search_text and not self._matches_search(p, search_text):
                 continue
-            if issue == "missing_change":
+            issue_type, missing_fields = self._classify_issue(p)
+            if not issue_type:
+                continue
+            if issue_type == "missing_change":
                 p["issue_type"] = "missing_change"
                 p["issue_label"] = "缺失更改"
                 p["missing_prefix"] = "缺失"
-                p["missing_fields"] = ["涉及更改图样"]
+                p["missing_fields"] = missing_fields
                 self.col_missing_change.add_card(p)
-            elif issue == "not_implemented":
+            elif issue_type == "not_implemented":
                 p["issue_type"] = "not_implemented"
                 p["issue_label"] = "未落实"
                 p["missing_prefix"] = "未落实"
-                p["missing_fields"] = ["已落实情况"]
+                p["missing_fields"] = missing_fields
                 self.col_not_implemented.add_card(p)
 
     def _extract_labeled_value(self, text, label):
@@ -395,19 +437,36 @@ class KanbanWidget(QWidget):
             return False
         return value.strip() not in {"——", "--", "-", "—"}
 
+    def _matches_search(self, data, keyword):
+        fields = [
+            data.get("product_code", ""),
+            data.get("product_name", ""),
+            data.get("batch_number", ""),
+            data.get("model", ""),
+            data.get("drawing_number", ""),
+        ]
+        blob = " ".join(str(v) for v in fields if v)
+        return keyword in blob.lower()
+
     def _classify_issue(self, data):
         change_order = data.get("change_order", "")
         change_desc = data.get("change_description", "")
+        suggestion_order = self._extract_labeled_value(change_order, "更改建议单号")
         doc_no = self._extract_labeled_value(change_order, "更改单号/技术通知单号/工艺更改单号")
-        change_drawing = self._extract_labeled_value(change_desc, "涉及更改图样")
+        suggestion_drawing = self._extract_labeled_value(change_desc, "更改建议单涉及图样/文件")
         implement_status = self._extract_labeled_value(change_desc, "已落实情况")
-        if not self._is_effective(doc_no):
-            return None
-        if not self._is_effective(change_drawing):
-            return "missing_change"
-        if not self._is_effective(implement_status) or implement_status.strip() != "已落实":
-            return "not_implemented"
-        return None
+        missing_fields = []
+        if self._is_effective(suggestion_order):
+            if not self._is_effective(doc_no):
+                missing_fields.append("更改单号/技术通知单号/工艺更改单号")
+            if not self._is_effective(suggestion_drawing):
+                missing_fields.append("更改建议单涉及图样/文件")
+            if missing_fields:
+                return "missing_change", missing_fields
+        if self._is_effective(doc_no):
+            if not self._is_effective(implement_status) or implement_status.strip() != "已落实":
+                return "not_implemented", ["已落实情况"]
+        return None, []
 
     def import_excel(self):
         file_path, _ = QFileDialog.getOpenFileName(
