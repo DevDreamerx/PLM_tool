@@ -397,6 +397,24 @@ class KanbanWidget(QWidget):
         cursor.execute(query_sql)
         products = [dict(row) for row in cursor.fetchall()]
         conn.close()
+
+        status_map = {}
+        if products:
+            product_ids = [p["id"] for p in products]
+            placeholders = ",".join("?" for _ in product_ids)
+            status_sql = f"""
+                SELECT *
+                FROM tech_status
+                WHERE product_id IN ({placeholders})
+                ORDER BY created_at DESC
+            """
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(status_sql, product_ids)
+            for row in cursor.fetchall():
+                item = dict(row)
+                status_map.setdefault(item["product_id"], []).append(item)
+            conn.close()
         
         search_text = ""
         if hasattr(self, "search_input"):
@@ -405,7 +423,9 @@ class KanbanWidget(QWidget):
         for p in products:
             if search_text and not self._matches_search(p, search_text):
                 continue
-            issue_type, missing_fields = self._classify_issue(p)
+            issue_type, missing_fields = self._classify_issue_from_rows(
+                status_map.get(p["id"], [])
+            )
             if not issue_type:
                 continue
             if issue_type == "missing_change":
@@ -466,6 +486,34 @@ class KanbanWidget(QWidget):
         if self._is_effective(doc_no):
             if not self._is_effective(implement_status) or implement_status.strip() != "已落实":
                 return "not_implemented", ["已落实情况"]
+        return None, []
+
+    def _classify_issue_from_rows(self, rows):
+        if not rows:
+            return None, []
+        missing_change_fields = set()
+        not_implemented = False
+        for row in rows:
+            issue_type, missing_fields = self._classify_issue(row)
+            if issue_type == "missing_change":
+                missing_change_fields.update(missing_fields)
+            elif issue_type == "not_implemented":
+                not_implemented = True
+
+        if missing_change_fields:
+            ordered = [
+                "更改单号/技术通知单号/工艺更改单号",
+                "更改建议单涉及图样/文件",
+            ]
+            missing_ordered = [name for name in ordered if name in missing_change_fields]
+            for name in missing_change_fields:
+                if name not in missing_ordered:
+                    missing_ordered.append(name)
+            return "missing_change", missing_ordered
+
+        if not_implemented:
+            return "not_implemented", ["已落实情况"]
+
         return None, []
 
     def import_excel(self):
