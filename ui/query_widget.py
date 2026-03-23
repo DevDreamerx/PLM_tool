@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
                              QPushButton, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QMessageBox, QFileDialog)
+                             QHeaderView, QMessageBox, QFileDialog, QLabel)
 from PyQt5.QtCore import Qt
 from openpyxl import Workbook
 import os
@@ -15,6 +15,9 @@ class QueryWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.db = DatabaseManager()
+        self.page_size = 50
+        self.current_page = 1
+        self.total_records = 0
         self.init_ui()
 
     def init_ui(self):
@@ -50,17 +53,49 @@ class QueryWidget(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         
         layout.addWidget(self.table)
+
+        # 3. 分页栏
+        pager_layout = QHBoxLayout()
+        self.page_info = QLabel("共 0 条")
+
+        self.btn_prev = QPushButton("上一页")
+        self.btn_prev.setFixedWidth(100)
+        self.btn_prev.clicked.connect(self.go_prev_page)
+
+        self.btn_next = QPushButton("下一页")
+        self.btn_next.setFixedWidth(100)
+        self.btn_next.clicked.connect(self.go_next_page)
+
+        pager_layout.addWidget(self.page_info)
+        pager_layout.addStretch()
+        pager_layout.addWidget(self.btn_prev)
+        pager_layout.addWidget(self.btn_next)
+        layout.addLayout(pager_layout)
         
         self.setLayout(layout)
+        self.perform_search(reset_page=True)
 
-    def perform_search(self):
+    def perform_search(self, reset_page=False):
         """执行搜索"""
+        if reset_page:
+            self.current_page = 1
+
         keyword = self.search_input.text().strip()
         try:
-            results = self.db.search_products(keyword)
-            self.load_table_data(results)
+            result = self.db.search_products_paginated(
+                keyword=keyword,
+                page=self.current_page,
+                page_size=self.page_size,
+            )
+            self.total_records = result['total']
+            self.load_table_data(result['items'])
+            self.update_pagination_state()
         except Exception as e:
             QMessageBox.critical(self, "查询错误", str(e))
+
+    def refresh_after_update(self):
+        """数据更新后刷新当前列表"""
+        self.perform_search(reset_page=False)
 
     def load_table_data(self, data):
         """加载数据到表格"""
@@ -106,6 +141,32 @@ class QueryWidget(QWidget):
             btn_layout.addWidget(btn_delete)
             btn_layout.addWidget(btn_export)
             self.table.setCellWidget(row_idx, 5, btn_widget)
+
+    def update_pagination_state(self):
+        total_pages = max(1, (self.total_records + self.page_size - 1) // self.page_size)
+        if self.current_page > total_pages:
+            self.current_page = total_pages
+
+        start_index = 0 if self.total_records == 0 else (self.current_page - 1) * self.page_size + 1
+        end_index = min(self.current_page * self.page_size, self.total_records)
+        self.page_info.setText(
+            f"第 {self.current_page}/{total_pages} 页，显示 {start_index}-{end_index} 条，共 {self.total_records} 条"
+        )
+        self.btn_prev.setEnabled(self.current_page > 1)
+        self.btn_next.setEnabled(self.current_page < total_pages)
+
+    def go_prev_page(self):
+        if self.current_page <= 1:
+            return
+        self.current_page -= 1
+        self.perform_search(reset_page=False)
+
+    def go_next_page(self):
+        total_pages = max(1, (self.total_records + self.page_size - 1) // self.page_size)
+        if self.current_page >= total_pages:
+            return
+        self.current_page += 1
+        self.perform_search(reset_page=False)
 
     def view_detail(self, product_id):
         """查看详情"""

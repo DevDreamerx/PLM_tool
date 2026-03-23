@@ -130,6 +130,7 @@ class MainWindow(QMainWindow):
 
         self.kanban_page.card_clicked.connect(self.open_detail_dialog)
         self.entry_page.data_updated.connect(self.kanban_page.load_data)
+        self.entry_page.data_updated.connect(self.query_page.refresh_after_update)
         self.entry_page.data_updated.connect(self.report_page.refresh_data)
 
         self.status = QStatusBar()

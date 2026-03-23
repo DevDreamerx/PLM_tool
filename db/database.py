@@ -133,7 +133,12 @@ class DatabaseManager:
         
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_product_code ON product(product_code)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_product_status_created_at ON product(status, created_at DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_product_name ON product(product_name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_product_batch_number ON product(batch_number)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_product_model ON product(model)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_product_id ON tech_status(product_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tech_status_product_created_at ON tech_status(product_id, created_at DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tech_status_id ON change_log(tech_status_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_change_created_at ON change_log(created_at)')
         
@@ -176,13 +181,8 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def search_products(self, keyword=""):
-        """模糊搜索产品（包含最新技术状态）"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
+    def _build_product_search_query(self, keyword=""):
         query = """
-            SELECT p.*
             FROM product p
             LEFT JOIN tech_status ts ON ts.id = (
                 SELECT id FROM tech_status
@@ -193,7 +193,7 @@ class DatabaseManager:
             WHERE p.status = 'active'
         """
         params = []
-        
+
         if keyword:
             query += """
                 AND (
@@ -208,13 +208,44 @@ class DatabaseManager:
             """
             like_kw = f"%{keyword}%"
             params.extend([like_kw] * 19)
-            
-        query += " ORDER BY p.created_at DESC"
-        
-        cursor.execute(query, params)
+
+        return query, params
+
+    def search_products(self, keyword=""):
+        """模糊搜索产品（兼容旧接口，返回全部结果）"""
+        result = self.search_products_paginated(keyword=keyword, page=1, page_size=1000000)
+        return result['items']
+
+    def search_products_paginated(self, keyword="", page=1, page_size=50):
+        """分页搜索产品（包含最新技术状态）"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        page = max(1, int(page or 1))
+        page_size = max(1, min(int(page_size or 50), 200))
+        offset = (page - 1) * page_size
+
+        base_query, params = self._build_product_search_query(keyword)
+
+        count_query = "SELECT COUNT(*) AS total " + base_query
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()["total"]
+
+        data_query = (
+            "SELECT p.* "
+            + base_query
+            + " ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
+        )
+        cursor.execute(data_query, [*params, page_size, offset])
         rows = cursor.fetchall()
         conn.close()
-        return [dict(row) for row in rows]
+
+        return {
+            'items': [dict(row) for row in rows],
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+        }
 
     def get_product(self, product_id):
         """根据ID获取产品详情"""
