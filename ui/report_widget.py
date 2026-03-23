@@ -69,15 +69,6 @@ class ReportWidget(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(18)
 
-        title = QLabel("技术状态报表")
-        title.setObjectName("PageTitle")
-        main_layout.addWidget(title)
-
-        intro = QLabel("从总体规模、型号分布和最近变更活动三个维度观察当前技术状态。")
-        intro.setObjectName("ReportIntro")
-        intro.setWordWrap(True)
-        main_layout.addWidget(intro)
-
         hero = QFrame()
         hero.setObjectName("HeroPanel")
         hero_layout = QHBoxLayout()
@@ -147,13 +138,13 @@ class ReportWidget(QWidget):
         insight_layout.setSpacing(18)
 
         chart_group = QGroupBox("型号分布")
-        chart_group.setObjectName("ReportCard")
+        chart_group.setObjectName("SectionCard")
         chart_layout = QVBoxLayout()
         chart_layout.setContentsMargins(18, 18, 18, 18)
         chart_layout.setSpacing(12)
 
         chart_hint = QLabel("对比不同型号当前存量，便于快速识别集中分布。")
-        chart_hint.setObjectName("ReportHint")
+        chart_hint.setObjectName("HintText")
         self.figure = Figure(figsize=(8, 4))
         self.figure.set_facecolor("#f8fbfd")
         self.canvas = FigureCanvas(self.figure)
@@ -163,13 +154,13 @@ class ReportWidget(QWidget):
         insight_layout.addWidget(chart_group, 3)
 
         changes_group = QGroupBox("最近变更活动")
-        changes_group.setObjectName("ReportCard")
+        changes_group.setObjectName("SectionCard")
         changes_layout = QVBoxLayout()
         changes_layout.setContentsMargins(18, 18, 18, 18)
         changes_layout.setSpacing(12)
 
         changes_hint = QLabel("默认展示最近 8 条变更记录。")
-        changes_hint.setObjectName("ReportHint")
+        changes_hint.setObjectName("HintText")
         self.changes_list = QListWidget()
         self.changes_list.setObjectName("ChangesList")
         self.changes_list.setSpacing(8)
@@ -185,7 +176,7 @@ class ReportWidget(QWidget):
 
         centered = QWidget()
         centered_layout = QHBoxLayout()
-        centered_layout.setContentsMargins(18, 18, 18, 24)
+        centered_layout.setContentsMargins(18, 0, 18, 24)
         centered_layout.addStretch()
         centered_layout.addWidget(content)
         centered_layout.addStretch()
@@ -205,11 +196,6 @@ class ReportWidget(QWidget):
             f"""
             QWidget#ReportContainer {{
                 background: transparent;
-            }}
-            QLabel#ReportIntro {{
-                color: {THEME['text_muted']};
-                font-size: 14px;
-                padding: 0 4px 2px 4px;
             }}
             QFrame#HeroPanel {{
                 background: qlineargradient(
@@ -250,52 +236,6 @@ class ReportWidget(QWidget):
                 color: rgba(255, 255, 255, 0.8);
                 font-size: 12px;
             }}
-            QGroupBox#StatCard, QGroupBox#ReportCard {{
-                border: 1px solid #dbe4ee;
-                border-radius: 18px;
-                margin-top: 10px;
-                background: #ffffff;
-                padding: 6px 0 0 0;
-            }}
-            QGroupBox#ReportCard::title, QGroupBox#StatCard::title {{
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                left: 14px;
-                padding: 0 8px;
-                color: {THEME['text_muted']};
-                font-size: 13px;
-                font-weight: 700;
-                background: {THEME['bg_app']};
-                border-radius: 8px;
-            }}
-            QLabel#ReportHint {{
-                color: {THEME['text_muted']};
-                font-size: 12px;
-            }}
-            QPushButton#GhostButton {{
-                min-height: 42px;
-                color: {THEME['text']};
-                border: 1px solid #c7d5e6;
-                border-radius: 12px;
-                background: #ffffff;
-                font-weight: 600;
-            }}
-            QPushButton#GhostButton:hover {{
-                background: #f4f8fc;
-                border-color: #9bb4d1;
-            }}
-            QPushButton#PrimaryButton {{
-                min-height: 42px;
-                color: #ffffff;
-                background: #315f8d;
-                border: 1px solid #315f8d;
-                border-radius: 12px;
-                font-weight: 700;
-            }}
-            QPushButton#PrimaryButton:hover {{
-                background: #294f76;
-                border-color: #294f76;
-            }}
             QListWidget#ChangesList {{
                 background: transparent;
                 border: none;
@@ -317,7 +257,7 @@ class ReportWidget(QWidget):
 
     def create_stat_card(self, title, value, subtitle, accent_color):
         card = QGroupBox(title)
-        card.setObjectName("StatCard")
+        card.setObjectName("SectionCard")
         layout = QVBoxLayout()
         layout.setContentsMargins(18, 20, 18, 18)
         layout.setSpacing(8)
@@ -420,6 +360,7 @@ class ReportWidget(QWidget):
 
         if not changes:
             empty_item = QListWidgetItem("暂无变更活动")
+            empty_item.setFlags(Qt.NoItemFlags)
             self.changes_list.addItem(empty_item)
             return
 

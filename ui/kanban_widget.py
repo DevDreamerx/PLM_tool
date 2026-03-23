@@ -18,7 +18,7 @@ from ui.theme import THEME, scale_px
 
 
 class TimelineCard(QFrame):
-    clicked = pyqtSignal(int)
+    clicked = pyqtSignal(object)
 
     def __init__(self, data, tone="amber"):
         super().__init__()
@@ -134,20 +134,20 @@ class TimelineCard(QFrame):
         footer.addWidget(owner)
         footer.addStretch()
 
-        action = QPushButton("继续完善")
+        action = QPushButton(self.data.get("action_text", "去补录"))
         action.setObjectName("InlineAction")
-        action.clicked.connect(lambda: self.clicked.emit(self.data["id"]))
+        action.clicked.connect(lambda: self.clicked.emit(self.data))
         footer.addWidget(action)
         layout.addLayout(footer)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.clicked.emit(self.data["id"])
+            self.clicked.emit(self.data)
         super().mouseReleaseEvent(event)
 
 
 class TimelineLane(QFrame):
-    card_clicked = pyqtSignal(int)
+    card_clicked = pyqtSignal(object)
 
     def __init__(self, title, hint, tone="amber"):
         super().__init__()
@@ -192,6 +192,20 @@ class TimelineLane(QFrame):
                 font-size: {scale_px(11)}px;
                 font-weight: 700;
             }}
+            QFrame#LaneEmptyState {{
+                background: #f8fbfd;
+                border: 1px dashed #d7e2ed;
+                border-radius: 14px;
+            }}
+            QLabel#LaneEmptyTitle {{
+                color: {THEME['text']};
+                font-size: {scale_px(13)}px;
+                font-weight: 700;
+            }}
+            QLabel#LaneEmptyHint {{
+                color: {THEME['text_muted']};
+                font-size: {scale_px(12)}px;
+            }}
             """
         )
 
@@ -231,22 +245,42 @@ class TimelineLane(QFrame):
         self.card_layout = QVBoxLayout(container)
         self.card_layout.setContentsMargins(18, 18, 18, 18)
         self.card_layout.setSpacing(12)
+        self.empty_state = QFrame()
+        self.empty_state.setObjectName("LaneEmptyState")
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setContentsMargins(16, 18, 16, 18)
+        empty_layout.setSpacing(6)
+        empty_title = QLabel("当前没有待处理项")
+        empty_title.setObjectName("LaneEmptyTitle")
+        empty_hint = QLabel(self.hint)
+        empty_hint.setObjectName("LaneEmptyHint")
+        empty_hint.setWordWrap(True)
+        empty_layout.addWidget(empty_title)
+        empty_layout.addWidget(empty_hint)
+        self.card_layout.addWidget(self.empty_state)
         self.card_layout.addStretch()
         scroll.setWidget(container)
         layout.addWidget(scroll)
+        self.card_count = 0
 
     def clear_cards(self):
-        while self.card_layout.count() > 1:
-            item = self.card_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        for index in range(self.card_layout.count() - 2, -1, -1):
+            item = self.card_layout.itemAt(index)
+            widget = item.widget()
+            if widget is not None and widget is not self.empty_state:
+                self.card_layout.removeWidget(widget)
+                widget.deleteLater()
+        self.card_count = 0
+        self.empty_state.show()
         self.count_label.setText("0 项")
 
     def add_card(self, card_data):
         card = TimelineCard(card_data, self.tone)
         card.clicked.connect(self.card_clicked.emit)
+        self.empty_state.hide()
         self.card_layout.insertWidget(self.card_layout.count() - 1, card)
-        self.count_label.setText(f"{self.card_layout.count() - 1} 项")
+        self.card_count += 1
+        self.count_label.setText(f"{self.card_count} 项")
 
     def apply_font_scale(self, scale):
         self.count_label.setStyleSheet(
@@ -257,7 +291,7 @@ class TimelineLane(QFrame):
 
 
 class KanbanWidget(QWidget):
-    card_clicked = pyqtSignal(int)
+    card_clicked = pyqtSignal(object)
 
     def __init__(self):
         super().__init__()
@@ -276,7 +310,7 @@ class KanbanWidget(QWidget):
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(18)
+        main_layout.setSpacing(16)
         self.main_layout = main_layout
 
         toolbar = QFrame()
@@ -286,8 +320,8 @@ class KanbanWidget(QWidget):
         toolbar_layout.setSpacing(14)
         self.toolbar_layout = toolbar_layout
 
-        self.toolbar_note = QLabel("仅显示缺失更改和待落实，按拖延天数排序。")
-        self.toolbar_note.setObjectName("ToolbarNote")
+        self.toolbar_note = QLabel("仅展示当前需要推进闭环的问题项。")
+        self.toolbar_note.setObjectName("HintText")
 
         search_row = QHBoxLayout()
         search_row.setSpacing(12)
@@ -354,15 +388,6 @@ class KanbanWidget(QWidget):
             QWidget#KanbanContainer {{
                 background: transparent;
             }}
-            QFrame#ToolbarPanel {{
-                background: #f7fafc;
-                border: 1px solid #dbe4ee;
-                border-radius: 16px;
-            }}
-            QLabel#ToolbarNote {{
-                color: {THEME['text_muted']};
-                font-size: 13px;
-            }}
             QLineEdit {{
                 min-height: 42px;
                 border-radius: 12px;
@@ -373,19 +398,7 @@ class KanbanWidget(QWidget):
             QLineEdit:focus {{
                 border-color: #7ea6d8;
             }}
-            QPushButton#GhostButton {{
-                min-height: 42px;
-                color: {THEME['text']};
-                border: 1px solid #c7d5e6;
-                border-radius: 12px;
-                background: #ffffff;
-                font-weight: 600;
-            }}
-            QPushButton#GhostButton:hover {{
-                background: #f4f8fc;
-                border-color: #9bb4d1;
-            }}
-            QFrame#StatCard {{
+            QFrame#SectionCard {{
                 background: #ffffff;
                 border: 1px solid #dbe4ee;
                 border-radius: 16px;
@@ -409,7 +422,7 @@ class KanbanWidget(QWidget):
 
     def _create_stat_card(self, title, accent):
         card = QFrame()
-        card.setObjectName("StatCard")
+        card.setObjectName("SectionCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(6)
@@ -551,6 +564,39 @@ class KanbanWidget(QWidget):
     def _extract_owner(self, change_desc):
         return self._extract_labeled_value(change_desc, "更改人") or "未填写"
 
+    def _build_prefill_payload(self, row):
+        if not row:
+            return {}
+
+        change_order = row.get("change_order", "")
+        change_desc = row.get("change_description", "")
+
+        return {
+            "stage": self._extract_labeled_value(change_desc, "所属阶段"),
+            "coord_order": self._extract_labeled_value(change_order, "协调单号"),
+            "suggestion_order": self._extract_labeled_value(change_order, "更改建议单号"),
+            "main_change_order": self._extract_labeled_value(
+                change_order, "更改单号/技术通知单号/工艺更改单号"
+            ),
+            "change_reason": self._extract_labeled_value(change_desc, "更改理由"),
+            "suggestion_drawing": self._extract_labeled_value(
+                change_desc, "更改建议单涉及图样/文件"
+            ),
+            "change_drawing": self._extract_labeled_value(change_desc, "涉及更改图样"),
+            "change_type": self._extract_labeled_value(change_desc, "更改类别"),
+            "change_cause": self._extract_labeled_value(change_desc, "更改原因"),
+            "change_owner": self._extract_labeled_value(change_desc, "更改人"),
+            "handle_opinion": self._extract_labeled_value(change_desc, "处理意见"),
+            "need_impl_product": self._extract_labeled_value(change_desc, "需落实产品编号"),
+            "impl_status": self._extract_labeled_value(change_desc, "已落实情况"),
+            "not_impl_product": self._extract_labeled_value(change_desc, "未落实产品编号"),
+            "process_impl_status": self._extract_labeled_value(
+                change_desc, "工艺更改落实情况"
+            ),
+            "remark": self._extract_labeled_value(change_desc, "备注"),
+            "effective_date": row.get("effective_date", ""),
+        }
+
     def _build_issue(self, product, rows):
         if not rows:
             return None
@@ -606,9 +652,13 @@ class KanbanWidget(QWidget):
         if issue_type == "missing_change":
             badges = list(missing_fields) or ["缺失更改"]
             summary = "需要补齐更改单据、阶段或图样关联信息，避免后续落实链路断开。"
+            action_text = "去补录变更"
         else:
             badges = list(pending_fields) or ["待落实"]
             summary = "变更已形成，但落实状态尚未闭环，建议优先补充落实情况和闭环结果。"
+            action_text = "去补录结果"
+
+        prefill = self._build_prefill_payload(reference_row)
 
         return {
             "id": product["id"],
@@ -621,6 +671,8 @@ class KanbanWidget(QWidget):
             "delay_days": delay_days,
             "delay_text": f"{delay_days} 天未闭环" if delay_days > 0 else "今日新增",
             "timeline_text": f"最近异常时间 {timeline_text}",
+            "action_text": action_text,
+            "prefill": prefill,
         }
 
     def _clear_layout(self, layout):

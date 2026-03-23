@@ -43,6 +43,14 @@ class MainWindow(QMainWindow):
         self.apply_font_scale(self.ui_font_scale, save=False)
 
     def init_ui(self):
+        self.page_descriptions = {
+            "待处理看板": "围绕待补信息和待落实事项，优先处理最影响闭环的记录。",
+            "查询": "快速定位产品与技术状态记录，支持浏览、删除和导出。",
+            "录入": "先选择已有产品，再补充本次变更主信息与按需说明。",
+            "报表": "从总量、分布和最近活动三个视角观察技术状态全貌。",
+            "设置": "统一管理字体缩放、备份策略和恢复等低频配置操作。",
+        }
+
         main_widget = QWidget()
         main_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setCentralWidget(main_widget)
@@ -92,18 +100,25 @@ class MainWindow(QMainWindow):
         content_frame.setObjectName("ContentFrame")
         content_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         content_layout = QVBoxLayout(content_frame)
-        content_layout.setContentsMargins(24, 16, 24, 16)
-        content_layout.setSpacing(12)
+        content_layout.setContentsMargins(24, 18, 24, 18)
+        content_layout.setSpacing(14)
         content_layout.setSizeConstraint(QLayout.SetNoConstraint)
 
         header_frame = QFrame()
         header_frame.setObjectName("HeaderFrame")
         header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(16, 10, 16, 10)
+        header_layout.setContentsMargins(18, 14, 18, 14)
 
+        title_wrap = QVBoxLayout()
+        title_wrap.setSpacing(4)
         self.header_title = QLabel(self.page_titles[0])
         self.header_title.setObjectName("HeaderTitle")
-        header_layout.addWidget(self.header_title)
+        self.header_summary = QLabel(self.page_descriptions[self.page_titles[0]])
+        self.header_summary.setObjectName("HeaderSummary")
+        self.header_summary.setWordWrap(True)
+        title_wrap.addWidget(self.header_title)
+        title_wrap.addWidget(self.header_summary)
+        header_layout.addLayout(title_wrap)
         header_layout.addStretch()
 
         content_layout.addWidget(header_frame)
@@ -128,7 +143,7 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self.workspace)
         main_layout.addWidget(content_frame)
 
-        self.kanban_page.card_clicked.connect(self.open_detail_dialog)
+        self.kanban_page.card_clicked.connect(self.open_kanban_follow_up)
         self.entry_page.data_updated.connect(self.kanban_page.load_data)
         self.entry_page.data_updated.connect(self.query_page.refresh_after_update)
         self.entry_page.data_updated.connect(self.report_page.refresh_data)
@@ -137,7 +152,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status)
         self.status.setSizeGripEnabled(True)
         self.init_font_zoom_actions()
-        self.status.showMessage("就绪")
+        self.status.showMessage("界面已就绪")
 
     def init_font_zoom_actions(self):
         self.font_scale_label = QLabel()
@@ -188,7 +203,9 @@ class MainWindow(QMainWindow):
         if index < 0:
             return
         self.workspace.setCurrentIndex(index)
-        self.header_title.setText(self.page_titles[index])
+        page_title = self.page_titles[index]
+        self.header_title.setText(page_title)
+        self.header_summary.setText(self.page_descriptions.get(page_title, ""))
         self.status.showMessage(f"切换至: {self.page_titles[index]}")
 
     def open_detail_dialog(self, product_id):
@@ -198,6 +215,26 @@ class MainWindow(QMainWindow):
             dialog.exec_()
         else:
             QMessageBox.warning(self, "错误", "未找到该记录")
+
+    def open_kanban_follow_up(self, card_data):
+        if not isinstance(card_data, dict):
+            self.open_detail_dialog(card_data)
+            return
+
+        product_id = card_data.get("id")
+        issue_type = card_data.get("issue_type")
+        prefill = card_data.get("prefill")
+        if not product_id:
+            QMessageBox.warning(self, "错误", "未找到需要补录的记录")
+            return
+
+        handled = self.entry_page.open_follow_up_for_issue(product_id, issue_type, prefill)
+        if not handled:
+            return
+
+        self.nav_list.setCurrentRow(2)
+        issue_text = "补齐变更信息" if issue_type == "missing_change" else "补充落实结果"
+        self.status.showMessage(f"已跳转至录入页：{issue_text}")
 
     def closeEvent(self, event):
         """窗口关闭事件 - 执行自动备份"""

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
                              QPushButton, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QMessageBox, QFileDialog, QLabel)
+                             QHeaderView, QMessageBox, QFileDialog, QLabel,
+                             QFrame)
 from PyQt5.QtCore import Qt
 from openpyxl import Workbook
-import os
 from db.database import DatabaseManager
 from ui.theme import THEME
 from ui.detail_dialog import DetailDialog
@@ -21,22 +21,47 @@ class QueryWidget(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        self._apply_styles()
+
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(18)
         
-        # 1. 搜索栏
-        search_layout = QHBoxLayout()
+        search_panel = QFrame()
+        search_panel.setObjectName("ToolbarPanel")
+        search_layout = QHBoxLayout(search_panel)
+        search_layout.setContentsMargins(18, 16, 18, 16)
+        search_layout.setSpacing(12)
+
+        tip = QLabel("默认按录入时间倒序展示，支持跨产品基础信息与最新技术状态搜索。")
+        tip.setObjectName("HintText")
+
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("支持产品信息与技术状态关键词搜索...")
-        self.search_input.returnPressed.connect(self.perform_search)
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.returnPressed.connect(lambda: self.perform_search(reset_page=True))
         
         self.btn_search = QPushButton("搜索")
+        self.btn_search.setObjectName("PrimaryButton")
         self.btn_search.setFixedWidth(100)
-        self.btn_search.clicked.connect(self.perform_search)
+        self.btn_search.clicked.connect(lambda: self.perform_search(reset_page=True))
+
+        self.btn_reset = QPushButton("清空")
+        self.btn_reset.setObjectName("GhostButton")
+        self.btn_reset.setFixedWidth(100)
+        self.btn_reset.clicked.connect(self.reset_search)
         
+        search_layout.addWidget(tip, 2)
+        search_layout.addStretch()
         search_layout.addWidget(self.search_input)
         search_layout.addWidget(self.btn_search)
-        
-        layout.addLayout(search_layout)
+        search_layout.addWidget(self.btn_reset)
+
+        layout.addWidget(search_panel)
+
+        self.result_summary = QLabel("共 0 条")
+        self.result_summary.setObjectName("SummaryBanner")
+        layout.addWidget(self.result_summary)
         
         # 2. 结果表格
         self.table = QTableWidget()
@@ -47,16 +72,39 @@ class QueryWidget(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents) # ID列
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents) # 操作列
+        header.setSectionResizeMode(5, QHeaderView.Fixed) # 操作列
+        self.table.setColumnWidth(5, 248)
         
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(46)
+        self.table.setWordWrap(False)
         
         layout.addWidget(self.table)
 
+        self.empty_state = QFrame()
+        self.empty_state.setObjectName("SectionCard")
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setContentsMargins(24, 26, 24, 26)
+        empty_layout.setSpacing(8)
+        empty_title = QLabel("当前没有匹配记录")
+        empty_title.setObjectName("EmptyStateTitle")
+        empty_hint = QLabel("试试换个关键词，或清空搜索后查看全部可查询记录。")
+        empty_hint.setObjectName("HintText")
+        empty_hint.setWordWrap(True)
+        empty_layout.addWidget(empty_title)
+        empty_layout.addWidget(empty_hint)
+        layout.addWidget(self.empty_state)
+
         # 3. 分页栏
-        pager_layout = QHBoxLayout()
+        pager_panel = QFrame()
+        pager_panel.setObjectName("ToolbarPanel")
+        pager_layout = QHBoxLayout(pager_panel)
+        pager_layout.setContentsMargins(14, 10, 14, 10)
         self.page_info = QLabel("共 0 条")
+        self.page_info.setObjectName("HintText")
 
         self.btn_prev = QPushButton("上一页")
         self.btn_prev.setFixedWidth(100)
@@ -70,10 +118,56 @@ class QueryWidget(QWidget):
         pager_layout.addStretch()
         pager_layout.addWidget(self.btn_prev)
         pager_layout.addWidget(self.btn_next)
-        layout.addLayout(pager_layout)
+        layout.addWidget(pager_panel)
+        self.pager_panel = pager_panel
         
         self.setLayout(layout)
         self.perform_search(reset_page=True)
+
+    def _apply_styles(self):
+        self.setStyleSheet(
+            f"""
+            QTableWidget {{
+                alternate-background-color: #f8fbfd;
+                selection-background-color: {THEME['accent_soft']};
+                selection-color: {THEME['text']};
+            }}
+            QTableWidget::item {{
+                padding: 4px 6px;
+            }}
+            QLabel#EmptyStateTitle {{
+                color: {THEME['text']};
+                font-size: 16px;
+                font-weight: 700;
+            }}
+            QPushButton#RowActionButton {{
+                min-height: 32px;
+                padding: 0 12px;
+                border-radius: 9px;
+                background: #edf4fa;
+                border: 1px solid #d6e2ee;
+                color: {THEME['accent']};
+                font-weight: 600;
+            }}
+            QPushButton#RowActionButton:hover {{
+                background: #e2edf8;
+                border-color: #c5d7e8;
+            }}
+            QPushButton#RowDangerAction {{
+                min-height: 32px;
+                padding: 0 12px;
+                border-radius: 9px;
+                background: #fff1f2;
+                border: 1px solid #fecdd3;
+                color: {THEME['danger']};
+                font-weight: 600;
+            }}
+            QPushButton#RowDangerAction:hover {{
+                background: #ffe4e6;
+                border-color: #fda4af;
+            }}
+            """
+        )
 
     def perform_search(self, reset_page=False):
         """执行搜索"""
@@ -87,9 +181,17 @@ class QueryWidget(QWidget):
                 page=self.current_page,
                 page_size=self.page_size,
             )
+            if not result['items'] and result['total'] > 0 and self.current_page > 1:
+                self.current_page -= 1
+                result = self.db.search_products_paginated(
+                    keyword=keyword,
+                    page=self.current_page,
+                    page_size=self.page_size,
+                )
             self.total_records = result['total']
             self.load_table_data(result['items'])
             self.update_pagination_state()
+            self.update_result_summary(keyword)
         except Exception as e:
             QMessageBox.critical(self, "查询错误", str(e))
 
@@ -97,10 +199,18 @@ class QueryWidget(QWidget):
         """数据更新后刷新当前列表"""
         self.perform_search(reset_page=False)
 
+    def reset_search(self):
+        self.search_input.clear()
+        self.perform_search(reset_page=True)
+
     def load_table_data(self, data):
         """加载数据到表格"""
         self.table.setRowCount(len(data))
+        self.empty_state.setVisible(len(data) == 0)
+        self.table.setVisible(len(data) > 0)
+        self.pager_panel.setVisible(self.total_records > 0)
         for row_idx, row_data in enumerate(data):
+            self.table.setRowHeight(row_idx, 54)
             self.table.setItem(row_idx, 0, QTableWidgetItem(str(row_data['id'])))
             self.table.setItem(row_idx, 1, QTableWidgetItem(row_data['product_code']))
             self.table.setItem(row_idx, 2, QTableWidgetItem(row_data['product_name']))
@@ -111,29 +221,25 @@ class QueryWidget(QWidget):
             btn_widget = QWidget()
             btn_widget.setStyleSheet("background: transparent;")
             btn_layout = QHBoxLayout(btn_widget)
-            btn_layout.setContentsMargins(5, 2, 5, 2)
+            btn_layout.setContentsMargins(10, 8, 10, 8)
+            btn_layout.setSpacing(8)
+            btn_layout.setAlignment(Qt.AlignCenter)
             
             btn_view = QPushButton("查看")
-            btn_view.setFlat(True)
-            btn_view.setStyleSheet(
-                f"background: transparent; color: {THEME['accent']}; border: none; font-weight: 600;"
-            )
+            btn_view.setObjectName("RowActionButton")
+            btn_view.setMinimumWidth(64)
             btn_view.setCursor(Qt.PointingHandCursor)
             btn_view.clicked.connect(lambda checked, pid=row_data['id']: self.view_detail(pid))
             
             btn_delete = QPushButton("删除")
-            btn_delete.setFlat(True)
-            btn_delete.setStyleSheet(
-                f"background: transparent; color: {THEME['danger']}; border: none; font-weight: 600;"
-            )
+            btn_delete.setObjectName("RowDangerAction")
+            btn_delete.setMinimumWidth(64)
             btn_delete.setCursor(Qt.PointingHandCursor)
             btn_delete.clicked.connect(lambda checked, pid=row_data['id']: self.delete_record(pid))
 
             btn_export = QPushButton("导出")
-            btn_export.setFlat(True)
-            btn_export.setStyleSheet(
-                f"background: transparent; color: {THEME['text']}; border: none; font-weight: 600;"
-            )
+            btn_export.setObjectName("RowActionButton")
+            btn_export.setMinimumWidth(64)
             btn_export.setCursor(Qt.PointingHandCursor)
             btn_export.clicked.connect(lambda checked, pid=row_data['id']: self.export_record(pid))
             
@@ -154,6 +260,18 @@ class QueryWidget(QWidget):
         )
         self.btn_prev.setEnabled(self.current_page > 1)
         self.btn_next.setEnabled(self.current_page < total_pages)
+
+    def update_result_summary(self, keyword):
+        if keyword:
+            if self.total_records:
+                self.result_summary.setText(f"关键词“{keyword}”命中 {self.total_records} 条记录")
+            else:
+                self.result_summary.setText(f"关键词“{keyword}”没有命中记录")
+        else:
+            if self.total_records:
+                self.result_summary.setText(f"当前共有 {self.total_records} 条可查询记录")
+            else:
+                self.result_summary.setText("当前没有可查询记录")
 
     def go_prev_page(self):
         if self.current_page <= 1:
