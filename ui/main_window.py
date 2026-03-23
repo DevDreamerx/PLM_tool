@@ -21,7 +21,6 @@ from db.database import DatabaseManager
 from ui.entry_widget import EntryWidget
 from ui.query_widget import QueryWidget
 from ui.kanban_widget import KanbanWidget
-from ui.dashboard_widget import DashboardWidget
 from ui.report_widget import ReportWidget
 from ui.settings_widget import SettingsWidget
 from ui.detail_dialog import DetailDialog
@@ -77,7 +76,7 @@ class MainWindow(QMainWindow):
         self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.nav_list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
 
-        self.page_titles = ["仪表盘", "待处理看板", "查询", "录入", "报表", "设置"]
+        self.page_titles = ["待处理看板", "查询", "录入", "报表", "设置"]
         for title in self.page_titles:
             self.nav_list.addItem(title)
 
@@ -113,7 +112,6 @@ class MainWindow(QMainWindow):
         self.workspace.setObjectName("Workspace")
         self.workspace.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        self.dashboard_page = DashboardWidget()
         self.kanban_page = KanbanWidget()
         self.query_page = QueryWidget()
         self.entry_page = EntryWidget()
@@ -121,7 +119,6 @@ class MainWindow(QMainWindow):
         self.settings_page = SettingsWidget()
         self.settings_page.font_scale_changed.connect(self.apply_font_scale)
 
-        self.workspace.addWidget(self.dashboard_page)
         self.workspace.addWidget(self.kanban_page)
         self.workspace.addWidget(self.query_page)
         self.workspace.addWidget(self.entry_page)
@@ -133,7 +130,6 @@ class MainWindow(QMainWindow):
 
         self.kanban_page.card_clicked.connect(self.open_detail_dialog)
         self.entry_page.data_updated.connect(self.kanban_page.load_data)
-        self.entry_page.data_updated.connect(self.dashboard_page.refresh_data)
         self.entry_page.data_updated.connect(self.report_page.refresh_data)
 
         self.status = QStatusBar()
@@ -177,7 +173,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "settings_page") and hasattr(self.settings_page, "set_font_scale"):
             self.settings_page.set_font_scale(self.ui_font_scale)
 
-        for page in ("dashboard_page", "kanban_page", "report_page"):
+        for page in ("kanban_page", "report_page"):
             widget = getattr(self, page, None)
             if widget is not None and hasattr(widget, "apply_font_scale"):
                 widget.apply_font_scale(self.ui_font_scale)
@@ -193,8 +189,6 @@ class MainWindow(QMainWindow):
         self.workspace.setCurrentIndex(index)
         self.header_title.setText(self.page_titles[index])
         self.status.showMessage(f"切换至: {self.page_titles[index]}")
-        if index == 0 and hasattr(self, "dashboard_page"):
-            self.dashboard_page.refresh_data()
 
     def open_detail_dialog(self, product_id):
         data = self.db.get_product(product_id)

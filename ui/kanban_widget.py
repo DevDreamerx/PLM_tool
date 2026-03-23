@@ -1,385 +1,450 @@
-from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-                             QScrollArea, QFrame, QApplication, QPushButton,
-                             QFileDialog, QMessageBox, QLineEdit)
-from PyQt5.QtCore import Qt, pyqtSignal, QMimeData
-from PyQt5.QtGui import QDrag, QPixmap, QColor
+from datetime import datetime
+
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
+
 from db.database import DatabaseManager
 from ui.theme import THEME, scale_px
-from utils.excel_importer import ExcelImporter
 
-def rgba_color(hex_color, alpha):
-    color = QColor(hex_color)
-    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
 
-def darker_color(hex_color, factor=160):
-    color = QColor(hex_color)
-    return color.darker(factor).name()
-
-class KanbanCard(QFrame):
-    """看板卡片 - 高仿 Teambition 风格"""
-    
+class TimelineCard(QFrame):
     clicked = pyqtSignal(int)
-    
-    def __init__(self, data, state_color="#e07a5f"):
+
+    def __init__(self, data, tone="amber"):
         super().__init__()
         self.data = data
-        self.state_color = state_color
-        self._drag_start_pos = None
-        
-        # 基础样式
-        self.setMinimumWidth(240)
-        self.setStyleSheet(f"""
-            KanbanCard {{
-                background-color: {THEME['bg_panel']};
-                border: 1px solid {THEME['border']};
-                border-radius: 12px;
-                border-top: 3px solid {self.state_color};
-            }}
-            KanbanCard:hover {{
-                border-color: {self.state_color};
-            }}
-            QLabel {{ border: none; background: transparent; color: {THEME['text']}; }}
-        """)
+        self.tone = tone
         self.init_ui()
-        
+
     def init_ui(self):
+        accent = "#b7791f" if self.tone == "amber" else "#315f8d"
+        accent_soft = "#f9f2df" if self.tone == "amber" else "#edf4fa"
+        accent_text = "#8a6116" if self.tone == "amber" else "#315f8d"
+
+        self.setObjectName("TimelineCard")
+        self.setStyleSheet(
+            f"""
+            QFrame#TimelineCard {{
+                background: #ffffff;
+                border: 1px solid #dbe4ee;
+                border-left: 4px solid {accent};
+                border-radius: 16px;
+            }}
+            QFrame#TimelineCard:hover {{
+                border-color: {accent};
+                background: #fcfdff;
+            }}
+            QLabel {{
+                background: transparent;
+                border: none;
+            }}
+            QLabel#DelayBadge {{
+                background: {accent_soft};
+                color: {accent_text};
+                border-radius: 10px;
+                padding: 4px 10px;
+                font-weight: 700;
+            }}
+            QLabel#IssueBadge {{
+                background: {accent_soft};
+                color: {accent_text};
+                border-radius: 10px;
+                padding: 4px 10px;
+                font-weight: 600;
+            }}
+            QPushButton#InlineAction {{
+                min-height: 32px;
+                color: {accent_text};
+                border: 1px solid #c8d7e6;
+                border-radius: 10px;
+                background: #ffffff;
+                padding: 0 12px;
+                font-weight: 600;
+            }}
+            QPushButton#InlineAction:hover {{
+                background: {accent_soft};
+            }}
+            """
+        )
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
-        
-        # 1. 标题区
-        title_lbl = QLabel(f"{self.data.get('product_code', '')}")
-        title_lbl.setStyleSheet(
-            f"color: {THEME['text_muted']}; font-size: {scale_px(13)}px; font-weight: 700;"
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+
+        time_label = QLabel(self.data.get("timeline_text", ""))
+        time_label.setStyleSheet(
+            f"color: {THEME['text_muted']}; font-size: {scale_px(11)}px; font-weight: 600;"
         )
-        layout.addWidget(title_lbl)
-        
-        content_lbl = QLabel(self.data.get('product_name', '无名称'))
-        content_lbl.setWordWrap(True)
-        content_lbl.setStyleSheet(
-            f"color: {THEME['text']}; font-size: {scale_px(16)}px; font-weight: 700; line-height: 1.4;"
+        delay = QLabel(self.data.get("delay_text", ""))
+        delay.setObjectName("DelayBadge")
+        delay.setStyleSheet(
+            delay.styleSheet() + f"font-size: {scale_px(11)}px;"
         )
-        layout.addWidget(content_lbl)
-        
-        # 2. 标签区
-        tags_layout = QHBoxLayout()
-        tags_layout.setSpacing(6)
-        
-        # 状态标签
-        state_name = self.data.get("issue_label", "缺失更改")
-        state_icon = "●"
-        state_bg = rgba_color(self.state_color, 0.12)
-        state_text = darker_color(self.state_color)
-        if self.data.get("issue_type") == "not_implemented":
-            state_name = self.data.get("issue_label", "未落实")
-            state_icon = "●"
-            state_bg = rgba_color(self.state_color, 0.12)
-            state_text = darker_color(self.state_color)
-        
-        tag = QLabel(f"{state_icon} {state_name}")
-        tag.setStyleSheet(f"""
-            background-color: {state_bg}; color: {state_text};
-            padding: 3px 8px; border-radius: 6px; font-size: {scale_px(11)}px; font-weight: 600;
-        """)
-        tag.setMinimumHeight(20)
-        tags_layout.addWidget(tag)
-        tags_layout.addStretch()
-        
-        # 模拟头像 + 责任人
-        change_desc = self.data.get("change_description", "")
-        owner = ""
-        if change_desc:
-            for part in change_desc.split(";"):
-                part = part.strip()
-                if part.startswith("更改人:"):
-                    owner = part[len("更改人:"):].strip()
-                    break
-        avatar = QLabel("👤")
-        avatar.setStyleSheet(f"font-size: {scale_px(13)}px; color: {THEME['text_muted']};")
-        tags_layout.addWidget(avatar)
-        if owner and owner not in {"——", "--", "-", "—"}:
-            owner_label = QLabel(owner)
-            owner_label.setStyleSheet(
-                f"color: {THEME['text_muted']}; font-size: {scale_px(11)}px;"
+        top.addWidget(time_label)
+        top.addStretch()
+        top.addWidget(delay)
+        layout.addLayout(top)
+
+        title = QLabel(f"{self.data.get('product_code', '')}  {self.data.get('product_name', '')}")
+        title.setWordWrap(True)
+        title.setStyleSheet(
+            f"color: {THEME['text']}; font-size: {scale_px(15)}px; font-weight: 700;"
+        )
+        layout.addWidget(title)
+
+        badges = QHBoxLayout()
+        badges.setSpacing(8)
+        for text in self.data.get("badges", []):
+            badge = QLabel(text)
+            badge.setObjectName("IssueBadge")
+            badge.setStyleSheet(
+                badge.styleSheet() + f"font-size: {scale_px(11)}px;"
             )
-            tags_layout.addWidget(owner_label)
-        
-        layout.addLayout(tags_layout)
-        
-        # 3. 分割线
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet(f"background-color: {THEME['border']}; border: none; height: 1px;")
-        layout.addWidget(line)
-        
-        # 4. 底部信息
+            badges.addWidget(badge)
+        badges.addStretch()
+        layout.addLayout(badges)
+
+        summary = QLabel(self.data.get("summary", ""))
+        summary.setWordWrap(True)
+        summary.setStyleSheet(
+            f"color: {THEME['text_muted']}; font-size: {scale_px(12)}px; line-height: 1.5;"
+        )
+        layout.addWidget(summary)
+
         footer = QHBoxLayout()
         footer.setSpacing(10)
-        
-        created_at = str(self.data.get('created_at', ''))[:10]
-        ver = self.data.get('drawing_version', 'V1.0')
-        
-        l1 = QLabel(f"创建: {created_at}")
-        l1.setStyleSheet(f"color: {THEME['text_muted']}; font-size: {scale_px(11)}px;")
-        l2 = QLabel(f"版本 {ver}")
-        l2.setStyleSheet(f"color: {THEME['accent']}; font-size: {scale_px(11)}px; font-weight: 600;")
-        
-        footer.addWidget(l1)
+
+        owner = QLabel(f"责任人：{self.data.get('owner', '未填写')}")
+        owner.setStyleSheet(
+            f"color: {THEME['text_muted']}; font-size: {scale_px(11)}px;"
+        )
+        footer.addWidget(owner)
         footer.addStretch()
-        footer.addWidget(l2)
+
+        action = QPushButton("继续完善")
+        action.setObjectName("InlineAction")
+        action.clicked.connect(lambda: self.clicked.emit(self.data["id"]))
+        footer.addWidget(action)
         layout.addLayout(footer)
 
-        # 5. 缺失提示
-        missing = self.data.get("missing_fields", [])
-        if missing:
-            prefix = self.data.get("missing_prefix", "缺失")
-            missing_label = QLabel(f"{prefix}: " + " / ".join(missing))
-            missing_label.setWordWrap(True)
-            missing_label.setStyleSheet(
-                f"color: {THEME['danger']}; font-size: {scale_px(11)}px; font-weight: 600;"
-            )
-            layout.addWidget(missing_label)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._drag_start_pos = event.pos()
-            
-    def mouseMoveEvent(self, event):
-        if not self._drag_start_pos:
-            return
-            
-        if (event.pos() - self._drag_start_pos).manhattanLength() < QApplication.startDragDistance():
-            return
-            
-        drag = QDrag(self)
-        mime = QMimeData()
-        mime.setText(str(self.data['id']))
-        drag.setMimeData(mime)
-        self.setStyleSheet(
-            f"background-color: {THEME['bg_panel']}; border: 1px dashed {THEME['border']}; "
-            f"border-top: 3px solid {self.state_color};"
-        )
-        
-        pixmap = QPixmap(self.size())
-        self.render(pixmap)
-        drag.setPixmap(pixmap)
-        drag.setHotSpot(event.pos())
-        
-        drag.exec_(Qt.MoveAction)
-        self._drag_start_pos = None # Reset
-        
-        # 恢复样式? 需要一种机制，或者在 load_data 时重置
-        
     def mouseReleaseEvent(self, event):
-        if self._drag_start_pos:
-            # If we released without dragging, it's a click
-            self.clicked.emit(self.data['id'])
-            self._drag_start_pos = None
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.data["id"])
+        super().mouseReleaseEvent(event)
 
-class KanbanColumn(QWidget):
-    """看板列"""
-    
+
+class TimelineLane(QFrame):
     card_clicked = pyqtSignal(int)
-    
-    def __init__(self, title, state_key, color="#e07a5f", allow_drop=False):
+
+    def __init__(self, title, hint, tone="amber"):
         super().__init__()
-        # ... (rest of init)
         self.title = title
-        self.state_key = state_key
-        self.color = color
-        self.col_bg = rgba_color(self.color, 0.06)
-        self.col_header_bg = rgba_color(self.color, 0.12)
-        self.col_badge_bg = rgba_color(self.color, 0.18)
-        self.allow_drop = allow_drop
-        self.setAcceptDrops(allow_drop)
+        self.hint = hint
+        self.tone = tone
+        self.cards = []
         self.init_ui()
-        
+
     def init_ui(self):
-        # ... (same as before)
+        accent = "#b7791f" if self.tone == "amber" else "#315f8d"
+        soft_bg = "#fcf8ef" if self.tone == "amber" else "#f4f8fc"
+        self.setObjectName("TimelineLane")
+        self.setStyleSheet(
+            f"""
+            QFrame#TimelineLane {{
+                background: #ffffff;
+                border: 1px solid #dbe4ee;
+                border-radius: 20px;
+            }}
+            QFrame#LaneHeader {{
+                background: {soft_bg};
+                border-bottom: 1px solid #e3ebf3;
+                border-top-left-radius: 20px;
+                border-top-right-radius: 20px;
+            }}
+            QLabel#LaneTitle {{
+                color: {THEME['text']};
+                font-size: {scale_px(16)}px;
+                font-weight: 700;
+            }}
+            QLabel#LaneHint {{
+                color: {THEME['text_muted']};
+                font-size: {scale_px(12)}px;
+            }}
+            QLabel#LaneCount {{
+                background: rgba(255,255,255,0.72);
+                color: {accent};
+                border: 1px solid #d7e2ed;
+                border-radius: 11px;
+                padding: 4px 10px;
+                font-size: {scale_px(11)}px;
+                font-weight: 700;
+            }}
+            """
+        )
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        self.setStyleSheet(
-            f"background-color: {self.col_bg}; border: 1px solid {THEME['border']}; border-radius: 12px;"
-        )
-        
-        # 列头
-        header = QWidget()
-        header.setStyleSheet(
-            f"background-color: {self.color}; border-top-left-radius: 12px; border-top-right-radius: 12px;"
-        )
-        header.setFixedHeight(4)
+
+        header = QFrame()
+        header.setObjectName("LaneHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(18, 16, 18, 16)
+
+        text_wrap = QVBoxLayout()
+        text_wrap.setSpacing(4)
+        title = QLabel(self.title)
+        title.setObjectName("LaneTitle")
+        hint = QLabel(self.hint)
+        hint.setObjectName("LaneHint")
+        hint.setWordWrap(True)
+        text_wrap.addWidget(title)
+        text_wrap.addWidget(hint)
+        header_layout.addLayout(text_wrap)
+        header_layout.addStretch()
+
+        self.count_label = QLabel("0 项")
+        self.count_label.setObjectName("LaneCount")
+        header_layout.addWidget(self.count_label)
+
         layout.addWidget(header)
-        
-        title_box = QWidget()
-        title_box.setStyleSheet(
-            f"background-color: {self.col_header_bg}; border-bottom: 1px solid {THEME['border']};"
-        )
-        tb_layout = QHBoxLayout(title_box)
-        tb_layout.setContentsMargins(16, 12, 16, 12)
-        
-        lbl_title = QLabel(self.title)
-        self.lbl_title = lbl_title
-        lbl_title.setStyleSheet(f"font-weight: 600; font-size: {scale_px(14)}px; color: {THEME['text']};")
-        self.lbl_count = QLabel("0")
-        self.lbl_count.setStyleSheet(
-            f"""
-            background: {self.col_badge_bg};
-            border-radius: 10px;
-            padding: 2px 8px;
-            font-size: {scale_px(11)}px;
-            color: {self.color};
-            font-weight: 600;
-        """
-        )
-        
-        tb_layout.addWidget(lbl_title)
-        tb_layout.addWidget(self.lbl_count)
-        tb_layout.addStretch()
-        layout.addWidget(title_box)
-        
-        # 卡片区域
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        
-        self.card_container = QWidget()
-        self.card_container.setStyleSheet("background: transparent;")
-        self.card_layout = QVBoxLayout(self.card_container)
-        self.card_layout.setContentsMargins(12, 12, 12, 12)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        container = QWidget()
+        self.card_layout = QVBoxLayout(container)
+        self.card_layout.setContentsMargins(18, 18, 18, 18)
         self.card_layout.setSpacing(12)
         self.card_layout.addStretch()
-        
-        self.scroll.setWidget(self.card_container)
-        layout.addWidget(self.scroll)
-
-    def apply_font_scale(self, scale):
-        if hasattr(self, "lbl_title"):
-            self.lbl_title.setStyleSheet(
-                f"font-weight: 600; font-size: {scale_px(14, scale)}px; color: {THEME['text']};"
-            )
-        self.lbl_count.setStyleSheet(
-            f"""
-            background: {self.col_badge_bg};
-            border-radius: 10px;
-            padding: 2px 8px;
-            font-size: {scale_px(11, scale)}px;
-            color: {self.color};
-            font-weight: 600;
-        """
-        )
-
-    def add_card(self, card_data):
-        card = KanbanCard(card_data, self.color)
-        card.clicked.connect(self.card_clicked.emit) # Forward signal
-        # 插入到 stretch 之前
-        count = self.card_layout.count()
-        self.card_layout.insertWidget(count - 1, card)
-        self.update_count()
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
 
     def clear_cards(self):
-        # 保留最后一个 stretch item
         while self.card_layout.count() > 1:
             item = self.card_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        self.update_count()
+        self.count_label.setText("0 项")
 
-    def update_count(self):
-        # 减去 stretch
-        count = self.card_layout.count() - 1
-        self.lbl_count.setText(str(count))
+    def add_card(self, card_data):
+        card = TimelineCard(card_data, self.tone)
+        card.clicked.connect(self.card_clicked.emit)
+        self.card_layout.insertWidget(self.card_layout.count() - 1, card)
+        self.count_label.setText(f"{self.card_layout.count() - 1} 项")
 
-    def dragEnterEvent(self, event):
-        if not self.allow_drop:
-            event.ignore()
-            return
-        if event.mimeData().hasText():
-            event.accept()
-        else:
-            event.ignore()
+    def apply_font_scale(self, scale):
+        self.count_label.setStyleSheet(
+            f"background: rgba(255,255,255,0.72); color: {'#b7791f' if self.tone == 'amber' else '#315f8d'};"
+            f"border: 1px solid #d7e2ed; border-radius: 11px; padding: 4px 10px;"
+            f"font-size: {scale_px(11, scale)}px; font-weight: 700;"
+        )
 
-    def dropEvent(self, event):
-        if not self.allow_drop:
-            event.ignore()
-            return
-        card_id = int(event.mimeData().text())
-        event.accept()
 
 class KanbanWidget(QWidget):
-    """看板主视图"""
-    
     card_clicked = pyqtSignal(int)
-    
+
     def __init__(self):
         super().__init__()
         self.db = DatabaseManager()
-        self.importer = ExcelImporter()
-        self.setStyleSheet(f"background-color: {THEME['bg_app']};")
         self.init_ui()
-        
-    def init_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(12)
 
-        search_bar = QWidget()
-        search_layout = QHBoxLayout(search_bar)
-        search_layout.setContentsMargins(16, 6, 16, 0)
+    def init_ui(self):
+        self._apply_styles()
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        content = QWidget()
+        content.setObjectName("KanbanContainer")
+        content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(18)
+        self.main_layout = main_layout
+
+        toolbar = QFrame()
+        toolbar.setObjectName("ToolbarPanel")
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(18, 16, 18, 16)
+        toolbar_layout.setSpacing(14)
+        self.toolbar_layout = toolbar_layout
+
+        self.toolbar_note = QLabel("仅显示缺失更改和待落实，按拖延天数排序。")
+        self.toolbar_note.setObjectName("ToolbarNote")
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(12)
+        self.search_row = search_row
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("搜索产品代号/名称/批次/型号/图号")
+        self.search_input.setPlaceholderText("搜索产品代号、名称、批次、型号、图号")
         self.search_input.setClearButtonEnabled(True)
+        self.search_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.search_input.textChanged.connect(self.load_data)
-        self.search_input.setStyleSheet(
+        self.btn_refresh = QPushButton("刷新看板")
+        self.btn_refresh.setObjectName("GhostButton")
+        self.btn_refresh.setMinimumSize(112, 42)
+        self.btn_refresh.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.btn_refresh.clicked.connect(self.load_data)
+        search_row.addWidget(self.search_input)
+        search_row.addWidget(self.btn_refresh)
+        toolbar_layout.addWidget(self.toolbar_note)
+        toolbar_layout.addStretch()
+        toolbar_layout.addLayout(search_row, 2)
+        main_layout.addWidget(toolbar)
+
+        stats = QHBoxLayout()
+        stats.setSpacing(14)
+        self.stats_layout = stats
+        self.missing_stat = self._create_stat_card("缺失更改", "#b7791f")
+        self.pending_stat = self._create_stat_card("待落实", "#315f8d")
+        self.overdue_stat = self._create_stat_card("超 7 天未处理", "#c05621")
+        stats.addWidget(self.missing_stat)
+        stats.addWidget(self.pending_stat)
+        stats.addWidget(self.overdue_stat)
+        main_layout.addLayout(stats)
+
+        lanes = QHBoxLayout()
+        lanes.setSpacing(18)
+        self.lanes_layout = lanes
+        self.missing_lane = TimelineLane("缺失更改轨", "缺少核心更改单据或图样关联信息。", "amber")
+        self.pending_lane = TimelineLane("待落实轨", "更改已形成，但落实闭环还未完成。", "blue")
+        self.missing_lane.setMinimumWidth(380)
+        self.pending_lane.setMinimumWidth(380)
+        self.missing_lane.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.pending_lane.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.missing_lane.card_clicked.connect(self.card_clicked.emit)
+        self.pending_lane.card_clicked.connect(self.card_clicked.emit)
+        lanes.addWidget(self.missing_lane)
+        lanes.addWidget(self.pending_lane)
+        main_layout.addLayout(lanes)
+
+        content.setLayout(main_layout)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(content)
+        root_layout.addWidget(scroll)
+
+        self.content_widget = content
+        self._responsive_mode = None
+        self.load_data()
+        self._update_responsive_layout()
+
+    def _apply_styles(self):
+        self.setStyleSheet(
             f"""
+            QWidget#KanbanContainer {{
+                background: transparent;
+            }}
+            QFrame#ToolbarPanel {{
+                background: #f7fafc;
+                border: 1px solid #dbe4ee;
+                border-radius: 16px;
+            }}
+            QLabel#ToolbarNote {{
+                color: {THEME['text_muted']};
+                font-size: 13px;
+            }}
             QLineEdit {{
-                background: {THEME['bg_panel']};
-                border: 1px solid {THEME['border']};
-                border-radius: 10px;
-                padding: 6px 10px;
+                min-height: 42px;
+                border-radius: 12px;
+                border: 1px solid #d8e2ee;
+                background: #ffffff;
+                padding: 0 14px;
+            }}
+            QLineEdit:focus {{
+                border-color: #7ea6d8;
+            }}
+            QPushButton#GhostButton {{
+                min-height: 42px;
                 color: {THEME['text']};
-                font-size: {scale_px(12)}px;
+                border: 1px solid #c7d5e6;
+                border-radius: 12px;
+                background: #ffffff;
+                font-weight: 600;
+            }}
+            QPushButton#GhostButton:hover {{
+                background: #f4f8fc;
+                border-color: #9bb4d1;
+            }}
+            QFrame#StatCard {{
+                background: #ffffff;
+                border: 1px solid #dbe4ee;
+                border-radius: 16px;
+            }}
+            QLabel#StatTitle {{
+                color: {THEME['text_muted']};
+                font-size: 12px;
+                font-weight: 700;
+            }}
+            QLabel#StatValue {{
+                color: {THEME['text']};
+                font-size: 28px;
+                font-weight: 700;
+            }}
+            QLabel#StatHint {{
+                color: {THEME['text_muted']};
+                font-size: 12px;
             }}
             """
         )
-        search_layout.addWidget(self.search_input)
-        main_layout.addWidget(search_bar)
 
-        # 看板列布局容器
-        board_container = QWidget()
-        board_container.setStyleSheet(f"background-color: {THEME['bg_app']};")
-        board_layout = QHBoxLayout(board_container)
-        board_layout.setContentsMargins(16, 18, 16, 16)
-        board_layout.setSpacing(16)
-        
-        self.col_missing_change = KanbanColumn("缺失更改", "missing_change", THEME["warning"])
-        self.col_not_implemented = KanbanColumn("未落实", "not_implemented", THEME["danger"])
-        
-        # 连接信号
-        for col in [self.col_missing_change, self.col_not_implemented]:
-            col.card_clicked.connect(self.card_clicked.emit) # Forward to Widget
-            board_layout.addWidget(col)
-            
-        main_layout.addWidget(board_container)
-        
-        # 加载数据
-        self.load_data()
+    def _create_stat_card(self, title, accent):
+        card = QFrame()
+        card.setObjectName("StatCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(6)
+        title_label = QLabel(title)
+        title_label.setObjectName("StatTitle")
+        value_label = QLabel("0")
+        value_label.setObjectName("StatValue")
+        value_label.setStyleSheet(
+            f"color: {accent}; font-size: {scale_px(24)}px; font-weight: 700;"
+        )
+        hint_label = QLabel("当前异常项目")
+        hint_label.setObjectName("StatHint")
+        layout.addWidget(title_label)
+        layout.addWidget(value_label)
+        layout.addWidget(hint_label)
+        card.value_label = value_label
+        card.hint_label = hint_label
+        return card
 
     def apply_font_scale(self, scale):
-        for col in (self.col_missing_change, self.col_not_implemented):
-            if hasattr(col, "apply_font_scale"):
-                col.apply_font_scale(scale)
         self.load_data()
+        self._update_responsive_layout()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_responsive_layout()
 
     def load_data(self):
-        # 清空现有卡片
-        self.col_missing_change.clear_cards()
-        self.col_not_implemented.clear_cards()
-        
-        # 获取最新技术状态并筛选缺失项
+        self.missing_lane.clear_cards()
+        self.pending_lane.clear_cards()
+
         query_sql = """
             SELECT p.*,
+                ts.id AS tech_status_id,
+                ts.created_at AS tech_status_created_at,
                 ts.drawing_number, ts.drawing_version, ts.software_version, ts.firmware_version,
                 ts.req_baseline, ts.icd_version, ts.bom_version, ts.pcb_version,
                 ts.test_status, ts.qual_status, ts.change_order, ts.change_description
@@ -415,47 +480,38 @@ class KanbanWidget(QWidget):
                 item = dict(row)
                 status_map.setdefault(item["product_id"], []).append(item)
             conn.close()
-        
-        search_text = ""
-        if hasattr(self, "search_input"):
-            search_text = self.search_input.text().strip().lower()
 
-        for p in products:
-            if search_text and not self._matches_search(p, search_text):
-                continue
-            issue_type, missing_fields = self._classify_issue_from_rows(
-                status_map.get(p["id"], [])
-            )
-            if not issue_type:
-                continue
-            if issue_type == "missing_change":
-                p["issue_type"] = "missing_change"
-                p["issue_label"] = "缺失更改"
-                p["missing_prefix"] = "缺失"
-                p["missing_fields"] = missing_fields
-                self.col_missing_change.add_card(p)
-            elif issue_type == "not_implemented":
-                p["issue_type"] = "not_implemented"
-                p["issue_label"] = "未落实"
-                p["missing_prefix"] = "未落实"
-                p["missing_fields"] = missing_fields
-                self.col_not_implemented.add_card(p)
+        keyword = self.search_input.text().strip().lower() if hasattr(self, "search_input") else ""
+        missing_cards = []
+        pending_cards = []
 
-    def _extract_labeled_value(self, text, label):
-        if not text:
-            return ""
-        for part in text.split(";"):
-            part = part.strip()
-            if not part:
+        for product in products:
+            if keyword and not self._matches_search(product, keyword):
                 continue
-            if part.startswith(f"{label}:"):
-                return part[len(label) + 1:].strip()
-        return ""
+            issue = self._build_issue(product, status_map.get(product["id"], []))
+            if not issue:
+                continue
+            if issue["issue_type"] == "missing_change":
+                missing_cards.append(issue)
+            elif issue["issue_type"] == "not_implemented":
+                pending_cards.append(issue)
 
-    def _is_effective(self, value):
-        if not value:
-            return False
-        return value.strip() not in {"——", "--", "-", "—"}
+        missing_cards.sort(key=lambda x: x["delay_days"], reverse=True)
+        pending_cards.sort(key=lambda x: x["delay_days"], reverse=True)
+
+        for item in missing_cards:
+            self.missing_lane.add_card(item)
+        for item in pending_cards:
+            self.pending_lane.add_card(item)
+
+        overdue_count = sum(1 for item in missing_cards + pending_cards if item["delay_days"] > 7)
+        self.missing_stat.value_label.setText(str(len(missing_cards)))
+        self.pending_stat.value_label.setText(str(len(pending_cards)))
+        self.overdue_stat.value_label.setText(str(overdue_count))
+
+        self.missing_stat.hint_label.setText("待补单号 / 图样关联")
+        self.pending_stat.hint_label.setText("待落实 / 未闭环")
+        self.overdue_stat.hint_label.setText("拖延超过 7 天")
 
     def _matches_search(self, data, keyword):
         fields = [
@@ -468,130 +524,172 @@ class KanbanWidget(QWidget):
         blob = " ".join(str(v) for v in fields if v)
         return keyword in blob.lower()
 
-    def _classify_issue(self, data):
-        change_order = data.get("change_order", "")
-        change_desc = data.get("change_description", "")
-        suggestion_order = self._extract_labeled_value(change_order, "更改建议单号")
-        doc_no = self._extract_labeled_value(change_order, "更改单号/技术通知单号/工艺更改单号")
-        suggestion_drawing = self._extract_labeled_value(change_desc, "更改建议单涉及图样/文件")
-        implement_status = self._extract_labeled_value(change_desc, "已落实情况")
-        missing_fields = []
-        if self._is_effective(suggestion_order):
-            if not self._is_effective(doc_no):
-                missing_fields.append("更改单号/技术通知单号/工艺更改单号")
-            if not self._is_effective(suggestion_drawing):
-                missing_fields.append("更改建议单涉及图样/文件")
-            if missing_fields:
-                return "missing_change", missing_fields
-        if self._is_effective(doc_no):
-            if not self._is_effective(implement_status) or implement_status.strip() != "已落实":
-                return "not_implemented", ["已落实情况"]
-        return None, []
+    def _extract_labeled_value(self, text, label):
+        if not text:
+            return ""
+        for part in str(text).split(";"):
+            part = part.strip()
+            if part.startswith(f"{label}:"):
+                return part[len(label) + 1:].strip()
+        return ""
 
-    def _classify_issue_from_rows(self, rows):
-        if not rows:
-            return None, []
-        missing_change_fields = set()
-        not_implemented = False
-        for row in rows:
-            issue_type, missing_fields = self._classify_issue(row)
-            if issue_type == "missing_change":
-                missing_change_fields.update(missing_fields)
-            elif issue_type == "not_implemented":
-                not_implemented = True
+    def _is_effective(self, value):
+        if not value:
+            return False
+        return str(value).strip() not in {"——", "--", "-", "—"}
 
-        if missing_change_fields:
-            ordered = [
-                "更改单号/技术通知单号/工艺更改单号",
-                "更改建议单涉及图样/文件",
-            ]
-            missing_ordered = [name for name in ordered if name in missing_change_fields]
-            for name in missing_change_fields:
-                if name not in missing_ordered:
-                    missing_ordered.append(name)
-            return "missing_change", missing_ordered
-
-        if not_implemented:
-            return "not_implemented", ["已落实情况"]
-
-        return None, []
-
-    def import_excel(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "选择Excel文件", "", "Excel Files (*.xlsx)"
-        )
-        if not file_path:
-            return
-
-        try:
-            parsed = self.importer.parse(file_path)
-        except Exception as exc:
-            QMessageBox.critical(self, "导入失败", f"解析Excel失败:\n{exc}")
-            return
-
-        rows = parsed["rows"]
-        if not rows:
-            QMessageBox.information(self, "导入提示", "未识别到有效数据行")
-            return
-
-        created_products = 0
-        updated_products = 0
-        inserted_status = 0
-        skipped_rows = 0
-        errors = []
-
-        for idx, row in enumerate(rows, 1):
-            product_code = row.get("product_code")
-            product_name = row.get("product_name") or product_code or "未命名"
-            batch_number = row.get("batch_number") or "未填写"
-            model = row.get("model") or "其他"
-
-            if not product_code:
-                skipped_rows += 1
-                errors.append(f"第{idx}行缺少产品代号")
+    def _parse_date(self, text):
+        if not text:
+            return None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(str(text), fmt)
+            except Exception:
                 continue
+        return None
 
-            product = self.db.get_product_by_code(product_code)
-            if product:
-                if any([row.get("product_name"), row.get("batch_number"), row.get("model")]):
-                    self.db.update_product_basic(
-                        product["id"],
-                        {
-                            "product_name": product_name,
-                            "batch_number": batch_number,
-                            "model": model,
-                        },
-                    )
-                    updated_products += 1
-                product_id = product["id"]
-            else:
-                try:
-                    product_id = self.db.insert_product(
-                        {
-                            "product_code": product_code,
-                            "product_name": product_name,
-                            "batch_number": batch_number,
-                            "model": model,
-                            "status": "active",
-                        }
-                    )
-                    created_products += 1
-                except Exception as exc:
-                    skipped_rows += 1
-                    errors.append(f"第{idx}行产品创建失败: {exc}")
-                    continue
+    def _extract_owner(self, change_desc):
+        return self._extract_labeled_value(change_desc, "更改人") or "未填写"
 
-            tech_status_id = self.db.insert_tech_status(product_id, row)
-            if row.get("change_order") or row.get("change_description"):
-                log_content = f"Excel导入更新 {product_code}"
-                self.db.insert_change_log(tech_status_id, "update", log_content)
-            inserted_status += 1
+    def _build_issue(self, product, rows):
+        if not rows:
+            return None
 
-        message = (
-            f"导入完成\n新增产品: {created_products}\n更新产品: {updated_products}"
-            f"\n新增技术状态: {inserted_status}\n跳过行数: {skipped_rows}"
-        )
-        if errors:
-            message += "\n\n错误示例:\n" + "\n".join(errors[:5])
-        QMessageBox.information(self, "导入结果", message)
-        self.load_data()
+        latest_row = rows[0]
+        missing_fields = set()
+        pending_fields = set()
+        issue_type = None
+        reference_row = latest_row
+
+        for row in rows:
+            change_order = row.get("change_order", "")
+            change_desc = row.get("change_description", "")
+            suggestion_order = self._extract_labeled_value(change_order, "更改建议单号")
+            main_doc = self._extract_labeled_value(change_order, "更改单号/技术通知单号/工艺更改单号")
+            suggestion_drawing = self._extract_labeled_value(change_desc, "更改建议单涉及图样/文件")
+            implement_status = self._extract_labeled_value(change_desc, "已落实情况")
+            need_impl = self._extract_labeled_value(change_desc, "需落实产品编号")
+            process_impl = self._extract_labeled_value(change_desc, "工艺更改落实情况")
+
+            row_missing = []
+            if self._is_effective(suggestion_order):
+                if not self._is_effective(main_doc):
+                    row_missing.append("缺更改单号")
+                if not self._is_effective(suggestion_drawing):
+                    row_missing.append("缺涉及图样")
+
+            if row_missing:
+                issue_type = "missing_change"
+                missing_fields.update(row_missing)
+                reference_row = row
+                break
+
+            if self._is_effective(main_doc):
+                if (self._is_effective(need_impl) and implement_status.strip() != "已落实") or (
+                    self._is_effective(process_impl) and process_impl.strip() != "已落实"
+                ):
+                    issue_type = "not_implemented"
+                    if self._is_effective(need_impl):
+                        pending_fields.add("待落实")
+                    if self._is_effective(process_impl) and process_impl.strip() != "已落实":
+                        pending_fields.add("工艺未落实")
+                    reference_row = row
+                    break
+
+        if not issue_type:
+            return None
+
+        ref_date = self._parse_date(reference_row.get("created_at")) or self._parse_date(product.get("created_at"))
+        delay_days = max((datetime.now() - ref_date).days, 0) if ref_date else 0
+        timeline_text = ref_date.strftime("%m-%d %H:%M") if ref_date else "时间未知"
+
+        if issue_type == "missing_change":
+            badges = list(missing_fields) or ["缺失更改"]
+            summary = "需要补齐更改单据、阶段或图样关联信息，避免后续落实链路断开。"
+        else:
+            badges = list(pending_fields) or ["待落实"]
+            summary = "变更已形成，但落实状态尚未闭环，建议优先补充落实情况和闭环结果。"
+
+        return {
+            "id": product["id"],
+            "product_code": product.get("product_code", ""),
+            "product_name": product.get("product_name", ""),
+            "issue_type": issue_type,
+            "badges": badges,
+            "summary": summary,
+            "owner": self._extract_owner(reference_row.get("change_description", "")),
+            "delay_days": delay_days,
+            "delay_text": f"{delay_days} 天未闭环" if delay_days > 0 else "今日新增",
+            "timeline_text": f"最近异常时间 {timeline_text}",
+        }
+
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+
+    def _update_responsive_layout(self):
+        width = self.width()
+        if width >= 1400:
+            mode = "wide"
+        elif width >= 1050:
+            mode = "medium"
+        else:
+            mode = "compact"
+
+        if mode == self._responsive_mode:
+            return
+
+        self._responsive_mode = mode
+
+        self._clear_layout(self.toolbar_layout)
+        self._clear_layout(self.stats_layout)
+        self._clear_layout(self.lanes_layout)
+        self._clear_layout(self.search_row)
+
+        if mode == "compact":
+            self.search_row.setDirection(QVBoxLayout.TopToBottom)
+            self.search_row.setSpacing(10)
+            self.search_row.addWidget(self.search_input)
+            self.search_row.addWidget(self.btn_refresh, 0, Qt.AlignLeft)
+            self.toolbar_layout.setDirection(QVBoxLayout.TopToBottom)
+            self.toolbar_layout.setSpacing(10)
+            self.toolbar_layout.addWidget(self.toolbar_note)
+            self.toolbar_layout.addLayout(self.search_row)
+
+            self.stats_layout.setDirection(QVBoxLayout.TopToBottom)
+            self.stats_layout.setSpacing(12)
+            self.stats_layout.addWidget(self.missing_stat)
+            self.stats_layout.addWidget(self.pending_stat)
+            self.stats_layout.addWidget(self.overdue_stat)
+
+            self.lanes_layout.setDirection(QVBoxLayout.TopToBottom)
+            self.lanes_layout.setSpacing(14)
+            self.missing_lane.setMinimumWidth(0)
+            self.pending_lane.setMinimumWidth(0)
+            self.lanes_layout.addWidget(self.missing_lane)
+            self.lanes_layout.addWidget(self.pending_lane)
+        else:
+            self.search_row.setDirection(QHBoxLayout.LeftToRight)
+            self.search_row.setSpacing(12)
+            self.search_row.addWidget(self.search_input, 1)
+            self.search_row.addWidget(self.btn_refresh)
+            self.toolbar_layout.setDirection(QHBoxLayout.LeftToRight)
+            self.toolbar_layout.setSpacing(14)
+            self.toolbar_layout.addWidget(self.toolbar_note)
+            self.toolbar_layout.addStretch()
+            self.toolbar_layout.addLayout(self.search_row, 2)
+
+            self.stats_layout.setDirection(QHBoxLayout.LeftToRight)
+            self.stats_layout.setSpacing(14)
+            self.stats_layout.addWidget(self.missing_stat)
+            self.stats_layout.addWidget(self.pending_stat)
+            self.stats_layout.addWidget(self.overdue_stat)
+
+            self.lanes_layout.setDirection(QHBoxLayout.LeftToRight)
+            self.lanes_layout.setSpacing(18)
+            self.missing_lane.setMinimumWidth(320 if mode == "medium" else 380)
+            self.pending_lane.setMinimumWidth(320 if mode == "medium" else 380)
+            self.lanes_layout.addWidget(self.missing_lane)
+            self.lanes_layout.addWidget(self.pending_lane)

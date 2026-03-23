@@ -10,11 +10,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, PYQT_VERSION_STR, QT_VERSION_STR
-from PyQt5.QtQml import QQmlApplicationEngine
 from ui.main_window import MainWindow
 from ui.theme import app_stylesheet, set_font_scale
 from utils.backup import BackupManager
-from ui.qml_bridge import DashboardProvider, UiBridge
 
 def log_startup(message):
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -49,18 +47,8 @@ def main():
     )
     
     try:
-        engine = QQmlApplicationEngine()
-        provider = DashboardProvider()
-        ui_bridge = UiBridge(app)
-        engine.rootContext().setContextProperty("dashboardProvider", provider)
-        engine.rootContext().setContextProperty("uiBridge", ui_bridge)
-
-        qml_path = resource_path(os.path.join("qml", "Main.qml"))
-        engine.load(qml_path)
-
-        if not engine.rootObjects():
-            window = MainWindow()
-            window.show()
+        window = MainWindow()
+        window.show()
         sys.exit(app.exec_())
     except Exception:
         log_startup("Unhandled exception:\n" + traceback.format_exc())

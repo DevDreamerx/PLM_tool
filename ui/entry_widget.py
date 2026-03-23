@@ -1,59 +1,76 @@
 # -*- coding: utf-8 -*-
+from PyQt5.QtCore import QDate, QStringListModel, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QWidget,
+    QCompleter,
+    QDateEdit,
+    QFileDialog,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QTextEdit,
-    QComboBox,
-    QDateEdit,
-    QPushButton,
-    QGridLayout,
-    QHBoxLayout,
     QMessageBox,
-    QGroupBox,
-    QVBoxLayout,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
-    QFileDialog,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt5.QtCore import QDate, pyqtSignal
+
 from db.database import DatabaseManager
 from ui.theme import THEME
 from utils.excel_importer import ExcelImporter
 
+
 class EntryWidget(QWidget):
-    """状态录入界面"""
+    """技术变更录入界面"""
 
     data_updated = pyqtSignal()
-    
+
     def __init__(self):
         super().__init__()
         self.db = DatabaseManager()
         self.importer = ExcelImporter()
+        self.selected_product_id = None
+        self.product_options = {}
+        self.product_label_by_id = {}
         self.init_ui()
 
     def init_ui(self):
+        self._apply_entry_styles()
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 标题
-        title = QLabel("技术状态录入")
+        main_layout.setSpacing(18)
+
+        title = QLabel("技术变更录入")
         title.setObjectName("PageTitle")
         main_layout.addWidget(title)
 
-        # 数据导入
-        import_group = QGroupBox("数据导入与刷新")
+        page_tip = QLabel(
+            "录入流程只保留技术变更管理。先搜索已有产品并自动补全，再按步骤填写本次变更信息，"
+            " 可选项默认后置，减少页面干扰。"
+        )
+        page_tip.setObjectName("EntryIntro")
+        page_tip.setWordWrap(True)
+        main_layout.addWidget(page_tip)
+
+        import_group = QGroupBox("数据同步")
+        import_group.setObjectName("EntryCard")
         import_layout = QHBoxLayout()
+        import_layout.setContentsMargins(24, 18, 24, 18)
+        import_layout.setSpacing(14)
         import_tip = QLabel("支持批量导入 Excel 更新数据库，并同步待处理看板。")
-        import_tip.setStyleSheet(f"color: {THEME['text_muted']};")
+        import_tip.setObjectName("EntryHint")
 
         self.btn_import = QPushButton("导入Excel")
-        self.btn_import.setFixedSize(110, 36)
+        self.btn_import.setMinimumSize(116, 42)
         self.btn_import.setObjectName("GhostButton")
         self.btn_import.clicked.connect(self.import_excel)
 
         self.btn_refresh = QPushButton("刷新数据")
-        self.btn_refresh.setFixedSize(96, 36)
+        self.btn_refresh.setMinimumSize(104, 42)
         self.btn_refresh.setObjectName("GhostButton")
         self.btn_refresh.clicked.connect(self.refresh_data)
 
@@ -64,206 +81,380 @@ class EntryWidget(QWidget):
         import_group.setLayout(import_layout)
         main_layout.addWidget(import_group)
 
-        # 录入模式
-        mode_group = QGroupBox("录入模式")
-        mode_layout = QHBoxLayout()
+        select_group = QGroupBox("产品定位")
+        select_group.setObjectName("EntryCard")
+        select_layout = QGridLayout()
+        select_layout.setContentsMargins(24, 18, 24, 18)
+        select_layout.setHorizontalSpacing(14)
+        select_layout.setVerticalSpacing(10)
 
-        self.mode_switch = QComboBox()
-        self.mode_switch.addItems(["新建产品", "变更录入"])
-        self.mode_switch.currentIndexChanged.connect(self.on_mode_changed)
+        self.product_search = QLineEdit()
+        self.product_search.setPlaceholderText("输入产品代号、名称、批次或型号进行搜索")
 
-        self.product_selector = QComboBox()
-        self.product_selector.setEnabled(False)
-        self.product_selector.currentIndexChanged.connect(self.on_product_selected)
+        self.product_completer = QCompleter(self)
+        self.product_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.product_completer.setFilterMode(Qt.MatchContains)
+        self.product_completer.setCompletionMode(QCompleter.PopupCompletion)
+        self.product_search.setCompleter(self.product_completer)
+        self.product_search.editingFinished.connect(self.resolve_product_selection)
+        self.product_completer.activated.connect(self.on_product_completion_selected)
 
-        mode_layout.addWidget(QLabel("模式:"))
-        mode_layout.addWidget(self.mode_switch)
-        mode_layout.addSpacing(12)
-        mode_layout.addWidget(QLabel("已有产品:"))
-        mode_layout.addWidget(self.product_selector)
-        mode_layout.addStretch()
-        mode_group.setLayout(mode_layout)
-        main_layout.addWidget(mode_group)
-        
-        # 基本信息（产品 + 模板参数）
-        change_group = QGroupBox("基本信息")
-        change_layout = QGridLayout()
+        self.btn_clear_product = QPushButton("重新选择")
+        self.btn_clear_product.setObjectName("GhostButton")
+        self.btn_clear_product.setMinimumSize(116, 42)
+        self.btn_clear_product.clicked.connect(self.clear_selected_product)
+
+        select_hint = QLabel("自动补全格式：产品代号 | 产品名称 | 批次 | 型号")
+        select_hint.setObjectName("EntryHint")
+
+        select_layout.addWidget(QLabel("产品搜索:"), 0, 0)
+        select_layout.addWidget(self.product_search, 0, 1, 1, 3)
+        select_layout.addWidget(self.btn_clear_product, 0, 4)
+        select_layout.addWidget(select_hint, 1, 1, 1, 4)
+        select_layout.setColumnStretch(1, 2)
+        select_layout.setColumnStretch(2, 0)
+        select_layout.setColumnStretch(3, 1)
+        select_group.setLayout(select_layout)
+        main_layout.addWidget(select_group)
+
+        self.product_group = QGroupBox("产品摘要")
+        self.product_group.setObjectName("SummaryCard")
+        product_layout = QGridLayout()
+        product_layout.setContentsMargins(24, 18, 24, 18)
+        product_layout.setHorizontalSpacing(14)
+        product_layout.setVerticalSpacing(12)
 
         self.product_code = QLineEdit()
-        self.product_code.setPlaceholderText("必填 *")
-
+        self.product_code.setReadOnly(True)
+        self.product_code.setObjectName("ReadOnlyField")
         self.product_name = QLineEdit()
-        self.product_name.setPlaceholderText("必填 *")
-
+        self.product_name.setReadOnly(True)
+        self.product_name.setObjectName("ReadOnlyField")
         self.batch_number = QLineEdit()
-        self.batch_number.setPlaceholderText("必填 *")
+        self.batch_number.setReadOnly(True)
+        self.batch_number.setObjectName("ReadOnlyField")
+        self.model = QLineEdit()
+        self.model.setReadOnly(True)
+        self.model.setObjectName("ReadOnlyField")
 
-        self.model = QComboBox()
-        self.model.addItems(["型号A", "型号B", "型号C", "其他"])
+        product_layout.addWidget(QLabel("产品代号:"), 0, 0)
+        product_layout.addWidget(self.product_code, 0, 1)
+        product_layout.addWidget(QLabel("产品名称:"), 0, 2)
+        product_layout.addWidget(self.product_name, 0, 3)
+        product_layout.addWidget(QLabel("批次编号:"), 1, 0)
+        product_layout.addWidget(self.batch_number, 1, 1)
+        product_layout.addWidget(QLabel("所属型号:"), 1, 2)
+        product_layout.addWidget(self.model, 1, 3)
+        product_layout.setColumnStretch(1, 1)
+        product_layout.setColumnStretch(3, 1)
+        self.product_group.setLayout(product_layout)
+        main_layout.addWidget(self.product_group)
+
+        self.order_group = QGroupBox("变更主信息")
+        self.order_group.setObjectName("EntryCard")
+        order_layout = QGridLayout()
+        order_layout.setContentsMargins(24, 18, 24, 18)
+        order_layout.setHorizontalSpacing(14)
+        order_layout.setVerticalSpacing(12)
 
         self.stage = QLineEdit()
-        self.stage.setPlaceholderText("所属阶段")
-
+        self.stage.setPlaceholderText("例如 C / S")
         self.coord_order = QLineEdit()
         self.coord_order.setPlaceholderText("协调单号")
-
         self.suggestion_order = QLineEdit()
         self.suggestion_order.setPlaceholderText("更改建议单号")
-
         self.main_change_order = QLineEdit()
         self.main_change_order.setPlaceholderText("更改单号/技术通知单号/工艺更改单号")
 
+        order_layout.addWidget(QLabel("所属阶段:"), 0, 0)
+        order_layout.addWidget(self.stage, 0, 1)
+        order_layout.addWidget(QLabel("协调单号:"), 0, 2)
+        order_layout.addWidget(self.coord_order, 0, 3)
+        order_layout.addWidget(QLabel("更改建议单号:"), 1, 0)
+        order_layout.addWidget(self.suggestion_order, 1, 1)
+        order_layout.addWidget(QLabel("更改单号/技术通知单号/工艺更改单号:"), 1, 2)
+        order_layout.addWidget(self.main_change_order, 1, 3)
+        order_layout.setColumnStretch(1, 1)
+        order_layout.setColumnStretch(3, 1)
+        self.order_group.setLayout(order_layout)
+        main_layout.addWidget(self.order_group)
+
+        self.change_group = QGroupBox("变更说明")
+        self.change_group.setObjectName("EntryCard")
+        change_layout = QGridLayout()
+        change_layout.setContentsMargins(24, 18, 24, 18)
+        change_layout.setHorizontalSpacing(14)
+        change_layout.setVerticalSpacing(12)
+
         self.change_type = QLineEdit()
         self.change_type.setPlaceholderText("更改类别")
-
         self.change_cause = QLineEdit()
         self.change_cause.setPlaceholderText("更改原因")
-
         self.change_owner = QLineEdit()
         self.change_owner.setPlaceholderText("更改人")
-
         self.handle_opinion = QTextEdit()
         self.handle_opinion.setPlaceholderText("处理意见")
         self.handle_opinion.setMaximumHeight(60)
-
         self.change_reason = QTextEdit()
-        self.change_reason.setPlaceholderText("更改理由")
-        self.change_reason.setMaximumHeight(60)
-
+        self.change_reason.setPlaceholderText("本次变更理由或摘要")
+        self.change_reason.setMaximumHeight(80)
         self.suggestion_drawing = QLineEdit()
         self.suggestion_drawing.setPlaceholderText("更改建议单涉及图样/文件")
-
         self.change_drawing = QLineEdit()
         self.change_drawing.setPlaceholderText("涉及更改图样")
 
+        change_layout.addWidget(QLabel("更改类别:"), 0, 0)
+        change_layout.addWidget(self.change_type, 0, 1)
+        change_layout.addWidget(QLabel("更改原因:"), 0, 2)
+        change_layout.addWidget(self.change_cause, 0, 3)
+        change_layout.addWidget(QLabel("更改人:"), 1, 0)
+        change_layout.addWidget(self.change_owner, 1, 1)
+        change_layout.addWidget(QLabel("处理意见:"), 1, 2)
+        change_layout.addWidget(self.handle_opinion, 1, 3)
+        change_layout.addWidget(QLabel("更改理由:"), 2, 0)
+        change_layout.addWidget(self.change_reason, 2, 1, 1, 3)
+        change_layout.addWidget(QLabel("更改建议单涉及图样/文件:"), 3, 0)
+        change_layout.addWidget(self.suggestion_drawing, 3, 1)
+        change_layout.addWidget(QLabel("涉及更改图样:"), 3, 2)
+        change_layout.addWidget(self.change_drawing, 3, 3)
+        change_layout.setColumnStretch(1, 1)
+        change_layout.setColumnStretch(3, 1)
+        self.change_group.setLayout(change_layout)
+        main_layout.addWidget(self.change_group)
+
+        optional_wrap = QHBoxLayout()
+        optional_wrap.setContentsMargins(4, 0, 4, 0)
+        self.optional_tip = QLabel("落实情况、备注和生效日期默认为可选补充信息。")
+        self.optional_tip.setObjectName("EntryHint")
+        self.btn_toggle_optional = QPushButton("展开可选补充")
+        self.btn_toggle_optional.setObjectName("GhostButton")
+        self.btn_toggle_optional.setMinimumSize(128, 42)
+        self.btn_toggle_optional.clicked.connect(self.toggle_optional_group)
+        optional_wrap.addWidget(self.optional_tip)
+        optional_wrap.addStretch()
+        optional_wrap.addWidget(self.btn_toggle_optional)
+        main_layout.addLayout(optional_wrap)
+
+        self.optional_group = QGroupBox("补充信息")
+        self.optional_group.setObjectName("SoftCard")
+        optional_layout = QGridLayout()
+        optional_layout.setContentsMargins(24, 18, 24, 18)
+        optional_layout.setHorizontalSpacing(14)
+        optional_layout.setVerticalSpacing(12)
+
         self.need_impl_product = QLineEdit()
         self.need_impl_product.setPlaceholderText("需落实产品编号")
-
         self.impl_status = QLineEdit()
         self.impl_status.setPlaceholderText("已落实情况")
-
         self.not_impl_product = QLineEdit()
         self.not_impl_product.setPlaceholderText("未落实产品编号")
-
         self.process_impl_status = QLineEdit()
         self.process_impl_status.setPlaceholderText("工艺更改落实情况")
-
         self.remark = QTextEdit()
         self.remark.setPlaceholderText("备注")
         self.remark.setMaximumHeight(60)
-
         self.effective_date = QDateEdit()
         self.effective_date.setCalendarPopup(True)
         self.effective_date.setDate(QDate.currentDate())
 
-        change_layout.addWidget(QLabel("产品代号:"), 0, 0)
-        change_layout.addWidget(self.product_code, 0, 1)
-        change_layout.addWidget(QLabel("产品名称:"), 0, 2)
-        change_layout.addWidget(self.product_name, 0, 3)
+        optional_layout.addWidget(QLabel("需落实产品编号:"), 0, 0)
+        optional_layout.addWidget(self.need_impl_product, 0, 1)
+        optional_layout.addWidget(QLabel("已落实情况:"), 0, 2)
+        optional_layout.addWidget(self.impl_status, 0, 3)
+        optional_layout.addWidget(QLabel("未落实产品编号:"), 1, 0)
+        optional_layout.addWidget(self.not_impl_product, 1, 1)
+        optional_layout.addWidget(QLabel("工艺更改落实情况:"), 1, 2)
+        optional_layout.addWidget(self.process_impl_status, 1, 3)
+        optional_layout.addWidget(QLabel("备注:"), 2, 0)
+        optional_layout.addWidget(self.remark, 2, 1, 1, 3)
+        optional_layout.addWidget(QLabel("生效日期:"), 3, 0)
+        optional_layout.addWidget(self.effective_date, 3, 1)
+        optional_layout.setColumnStretch(1, 1)
+        optional_layout.setColumnStretch(3, 1)
+        self.optional_group.setLayout(optional_layout)
+        main_layout.addWidget(self.optional_group)
 
-        change_layout.addWidget(QLabel("批次编号:"), 1, 0)
-        change_layout.addWidget(self.batch_number, 1, 1)
-        change_layout.addWidget(QLabel("所属型号:"), 1, 2)
-        change_layout.addWidget(self.model, 1, 3)
-
-        change_layout.addWidget(QLabel("所属阶段:"), 2, 0)
-        change_layout.addWidget(self.stage, 2, 1)
-        change_layout.addWidget(QLabel("协调单号:"), 2, 2)
-        change_layout.addWidget(self.coord_order, 2, 3)
-
-        change_layout.addWidget(QLabel("更改建议单号:"), 3, 0)
-        change_layout.addWidget(self.suggestion_order, 3, 1)
-        change_layout.addWidget(QLabel("更改单号/技术通知单号/工艺更改单号:"), 3, 2)
-        change_layout.addWidget(self.main_change_order, 3, 3)
-
-        change_layout.addWidget(QLabel("更改类别:"), 4, 0)
-        change_layout.addWidget(self.change_type, 4, 1)
-        change_layout.addWidget(QLabel("更改原因:"), 4, 2)
-        change_layout.addWidget(self.change_cause, 4, 3)
-
-        change_layout.addWidget(QLabel("更改人:"), 5, 0)
-        change_layout.addWidget(self.change_owner, 5, 1)
-        change_layout.addWidget(QLabel("处理意见:"), 5, 2)
-        change_layout.addWidget(self.handle_opinion, 5, 3)
-
-        change_layout.addWidget(QLabel("更改理由:"), 6, 0)
-        change_layout.addWidget(self.change_reason, 6, 1, 1, 3)
-
-        change_layout.addWidget(QLabel("更改建议单涉及图样/文件:"), 7, 0)
-        change_layout.addWidget(self.suggestion_drawing, 7, 1)
-        change_layout.addWidget(QLabel("涉及更改图样:"), 7, 2)
-        change_layout.addWidget(self.change_drawing, 7, 3)
-
-        change_layout.addWidget(QLabel("需落实产品编号:"), 8, 0)
-        change_layout.addWidget(self.need_impl_product, 8, 1)
-        change_layout.addWidget(QLabel("已落实情况:"), 8, 2)
-        change_layout.addWidget(self.impl_status, 8, 3)
-
-        change_layout.addWidget(QLabel("未落实产品编号:"), 9, 0)
-        change_layout.addWidget(self.not_impl_product, 9, 1)
-        change_layout.addWidget(QLabel("工艺更改落实情况:"), 9, 2)
-        change_layout.addWidget(self.process_impl_status, 9, 3)
-
-        change_layout.addWidget(QLabel("备注:"), 10, 0)
-        change_layout.addWidget(self.remark, 10, 1, 1, 3)
-        change_layout.addWidget(QLabel("生效日期:"), 11, 0)
-        change_layout.addWidget(self.effective_date, 11, 1)
-
-        change_group.setLayout(change_layout)
-        main_layout.addWidget(change_group)
-        
-        # 5. 按钮组
         btn_layout = QHBoxLayout()
-        
-        self.btn_draft = QPushButton("暂存草稿")
-        self.btn_draft.setFixedSize(120, 40)
-        self.btn_draft.setObjectName("WarningButton")
-        self.btn_draft.clicked.connect(self.save_draft)
-        
-        self.btn_submit = QPushButton("正式提交")
-        self.btn_submit.setFixedSize(120, 40)
-        self.btn_submit.clicked.connect(self.submit_form)
-        
-        self.btn_clear = QPushButton("清空")
-        self.btn_clear.setFixedSize(80, 40)
+        btn_layout.setContentsMargins(4, 4, 4, 0)
+        btn_layout.setSpacing(12)
+        self.btn_clear = QPushButton("清空本次变更")
+        self.btn_clear.setMinimumSize(122, 44)
         self.btn_clear.setObjectName("GhostButton")
         self.btn_clear.clicked.connect(self.clear_form)
-        
+
+        self.btn_submit = QPushButton("提交变更")
+        self.btn_submit.setMinimumSize(132, 44)
+        self.btn_submit.setObjectName("PrimaryButton")
+        self.btn_submit.clicked.connect(self.submit_form)
+
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_clear)
-        btn_layout.addWidget(self.btn_draft)
         btn_layout.addWidget(self.btn_submit)
-        
         main_layout.addLayout(btn_layout)
         main_layout.addStretch()
 
         container = QWidget()
+        container.setObjectName("EntryContainer")
         container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         container.setLayout(main_layout)
+
+        centered_container = QWidget()
+        centered_layout = QHBoxLayout()
+        centered_layout.setContentsMargins(18, 18, 18, 24)
+        centered_layout.addStretch()
+        centered_layout.addWidget(container)
+        centered_layout.addStretch()
+        centered_container.setLayout(centered_layout)
+
+        container.setMaximumWidth(1240)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setWidget(container)
+        scroll_area.setWidget(centered_container)
 
         outer_layout = QVBoxLayout()
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(scroll_area)
-
         self.setLayout(outer_layout)
+
+        self._connect_progress_signals()
         self.refresh_product_list()
+        self.clear_selected_product()
 
-    def save_draft(self):
-        """暂存草稿"""
-        self._save_data(status='draft')
+    def _apply_entry_styles(self):
+        self.setStyleSheet(
+            f"""
+            QWidget#EntryContainer {{
+                background: transparent;
+            }}
+            QLabel#EntryIntro {{
+                color: {THEME['text_muted']};
+                font-size: 14px;
+                line-height: 1.5;
+                padding: 0 4px 2px 4px;
+            }}
+            QLabel#EntryHint {{
+                color: {THEME['text_muted']};
+                font-size: 12px;
+            }}
+            QGroupBox#EntryCard, QGroupBox#SummaryCard, QGroupBox#SoftCard {{
+                border: 1px solid {THEME['border']};
+                border-radius: 18px;
+                margin-top: 10px;
+                background: {THEME['bg_panel']};
+                padding: 6px 0 0 0;
+            }}
+            QGroupBox#SummaryCard {{
+                background: #f7fafc;
+                border-color: #d9e3ef;
+            }}
+            QGroupBox#SoftCard {{
+                background: #fbfcfe;
+                border-color: #e5ebf3;
+            }}
+            QGroupBox#EntryCard::title, QGroupBox#SummaryCard::title, QGroupBox#SoftCard::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 16px;
+                padding: 0 8px;
+                color: {THEME['text_muted']};
+                font-size: 13px;
+                font-weight: 700;
+                background: {THEME['bg_app']};
+                border-radius: 8px;
+            }}
+            QLineEdit, QDateEdit {{
+                min-height: 44px;
+                border-radius: 12px;
+                border: 1px solid #d8e2ee;
+                background: #ffffff;
+                padding: 0 14px;
+            }}
+            QLineEdit:focus, QDateEdit:focus, QTextEdit:focus {{
+                border-color: #7ea6d8;
+            }}
+            QTextEdit {{
+                border-radius: 14px;
+                border: 1px solid #d8e2ee;
+                background: #ffffff;
+                padding: 10px 14px;
+            }}
+            QLineEdit#ReadOnlyField {{
+                background: #eef4f8;
+                color: {THEME['text']};
+                border: 1px solid #d6e0ea;
+            }}
+            QPushButton#GhostButton {{
+                min-height: 42px;
+                color: {THEME['text']};
+                border: 1px solid #c7d5e6;
+                border-radius: 12px;
+                background: #ffffff;
+                font-weight: 600;
+            }}
+            QPushButton#GhostButton:hover {{
+                background: #f4f8fc;
+                border-color: #9bb4d1;
+                color: {THEME['text']};
+            }}
+            QPushButton#PrimaryButton {{
+                min-height: 44px;
+                color: #ffffff;
+                background: #315f8d;
+                border: 1px solid #315f8d;
+                border-radius: 12px;
+                font-weight: 700;
+            }}
+            QPushButton#PrimaryButton:hover {{
+                background: #294f76;
+                border-color: #294f76;
+            }}
+            """
+        )
 
-    def submit_form(self):
-        """正式提交"""
-        self._save_data(status='active')
+    def _connect_progress_signals(self):
+        for widget in [self.stage, self.coord_order, self.suggestion_order, self.main_change_order]:
+            widget.textChanged.connect(self.update_progressive_state)
+
+        for widget in [
+            self.change_type,
+            self.change_cause,
+            self.change_owner,
+            self.suggestion_drawing,
+            self.change_drawing,
+            self.need_impl_product,
+            self.impl_status,
+            self.not_impl_product,
+            self.process_impl_status,
+        ]:
+            widget.textChanged.connect(self.update_progressive_state)
+
+        self.change_reason.textChanged.connect(self.update_progressive_state)
+        self.handle_opinion.textChanged.connect(self.update_progressive_state)
+        self.remark.textChanged.connect(self.update_progressive_state)
 
     def refresh_data(self):
         self.refresh_product_list()
         self.data_updated.emit()
+
+    def refresh_product_list(self):
+        products = self.db.search_products("")
+        self.product_options = {}
+        self.product_label_by_id = {}
+        labels = []
+
+        for product in products:
+            label = (
+                f"{product['product_code']} | {product['product_name']} | "
+                f"批次:{product['batch_number']} | 型号:{product['model']}"
+            )
+            self.product_options[label] = product
+            self.product_label_by_id[product["id"]] = label
+            labels.append(label)
+
+        model = QStringListModel(labels, self.product_completer)
+        self.product_completer.setModel(model)
 
     def import_excel(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -346,16 +537,103 @@ class EntryWidget(QWidget):
         self.refresh_product_list()
         self.data_updated.emit()
 
-    def _save_data(self, status='active'):
-        """保存数据"""
-        # 1. 收集产品数据
-        product_data = {
-            "product_code": self.product_code.text().strip(),
-            "product_name": self.product_name.text().strip(),
-            "batch_number": self.batch_number.text().strip(),
-            "model": self.model.currentText()
-        }
-        
+    def on_product_completion_selected(self, text):
+        product = self.product_options.get(text)
+        if product:
+            self.set_selected_product(product)
+
+    def resolve_product_selection(self):
+        text = self.product_search.text().strip()
+        if not text:
+            self.clear_selected_product()
+            return
+
+        product = self.product_options.get(text)
+        if product:
+            self.set_selected_product(product)
+            return
+
+        matches = self.db.search_products(text)
+        if len(matches) == 1:
+            self.set_selected_product(matches[0])
+            return
+
+        if self.selected_product_id in self.product_label_by_id:
+            self.product_search.setText(self.product_label_by_id[self.selected_product_id])
+        else:
+            self.clear_selected_product()
+            QMessageBox.information(self, "选择产品", "未匹配到唯一产品，请继续输入或从自动补全中选择。")
+
+    def set_selected_product(self, product):
+        self.selected_product_id = product["id"]
+        self.product_code.setText(product.get("product_code", ""))
+        self.product_name.setText(product.get("product_name", ""))
+        self.batch_number.setText(product.get("batch_number", ""))
+        self.model.setText(product.get("model", ""))
+        label = self.product_label_by_id.get(product["id"])
+        if label:
+            self.product_search.setText(label)
+        self.update_progressive_state()
+
+    def clear_selected_product(self):
+        self.selected_product_id = None
+        self.product_search.clear()
+        self.product_code.clear()
+        self.product_name.clear()
+        self.batch_number.clear()
+        self.model.clear()
+        self.clear_form()
+        self.update_progressive_state()
+
+    def toggle_optional_group(self):
+        visible = not self.optional_group.isVisible()
+        self.optional_group.setVisible(visible)
+        self.btn_toggle_optional.setText("收起可选补充" if visible else "展开可选补充")
+
+    def update_progressive_state(self):
+        has_product = self.selected_product_id is not None
+        has_order_context = any([
+            self.stage.text().strip(),
+            self.coord_order.text().strip(),
+            self.suggestion_order.text().strip(),
+            self.main_change_order.text().strip(),
+        ])
+        has_core_change = any([
+            self.change_type.text().strip(),
+            self.change_cause.text().strip(),
+            self.change_owner.text().strip(),
+            self.change_reason.toPlainText().strip(),
+            self.handle_opinion.toPlainText().strip(),
+            self.suggestion_drawing.text().strip(),
+            self.change_drawing.text().strip(),
+        ])
+        has_optional_change = any([
+            self.need_impl_product.text().strip(),
+            self.impl_status.text().strip(),
+            self.not_impl_product.text().strip(),
+            self.process_impl_status.text().strip(),
+            self.remark.toPlainText().strip(),
+        ])
+
+        self.product_group.setEnabled(has_product)
+        self.order_group.setEnabled(has_product)
+        self.change_group.setEnabled(has_product)
+        self.btn_toggle_optional.setEnabled(has_product and (has_order_context or has_core_change or has_optional_change))
+        self.optional_tip.setEnabled(has_product)
+        self.btn_submit.setEnabled(has_product)
+
+        if not has_product:
+            self.optional_group.setVisible(False)
+            self.btn_toggle_optional.setText("展开可选补充")
+        elif not self.btn_toggle_optional.isEnabled():
+            self.optional_group.setVisible(False)
+            self.btn_toggle_optional.setText("展开可选补充")
+
+    def submit_form(self):
+        if not self.selected_product_id:
+            QMessageBox.warning(self, "校验失败", "请先选择已有产品")
+            return
+
         def _value(widget):
             if isinstance(widget, QTextEdit):
                 return widget.toPlainText().strip()
@@ -366,7 +644,6 @@ class EntryWidget(QWidget):
             "更改建议单号": _value(self.suggestion_order),
             "更改单号/技术通知单号/工艺更改单号": _value(self.main_change_order),
         }
-
         change_desc_fields = {
             "所属阶段": _value(self.stage),
             "更改理由": _value(self.change_reason),
@@ -390,7 +667,27 @@ class EntryWidget(QWidget):
             f"{label}:{value}" for label, value in change_desc_fields.items() if value
         )
 
-        # 2. 收集技术状态数据（保留模板字段）
+        has_substantive_change = any([
+            _value(self.coord_order),
+            _value(self.suggestion_order),
+            _value(self.main_change_order),
+            _value(self.change_reason),
+            _value(self.suggestion_drawing),
+            _value(self.change_drawing),
+            _value(self.change_type),
+            _value(self.change_cause),
+            _value(self.change_owner),
+            _value(self.handle_opinion),
+            _value(self.need_impl_product),
+            _value(self.impl_status),
+            _value(self.not_impl_product),
+            _value(self.process_impl_status),
+            _value(self.remark),
+        ])
+        if not has_substantive_change:
+            QMessageBox.warning(self, "校验失败", "请至少填写一项实质性变更内容")
+            return
+
         tech_data = {
             "drawing_number": "",
             "drawing_version": "",
@@ -407,60 +704,20 @@ class EntryWidget(QWidget):
             "qual_status": "",
             "change_order": change_order,
             "change_description": change_description,
-            "effective_date": self.effective_date.date().toString("yyyy-MM-dd")
+            "effective_date": self.effective_date.date().toString("yyyy-MM-dd"),
         }
-        
-        # 3. 校验必填项
-        if self.is_change_mode():
-            product_id = self.current_product_id()
-            if not product_id:
-                QMessageBox.warning(self, "校验失败", "请选择已有产品")
-                return
-        else:
-            if status == 'active':
-                if not all([product_data["product_code"], product_data["product_name"],
-                           product_data["batch_number"]]):
-                    QMessageBox.warning(self, "校验失败", "请填写所有必填字段（带 * 号）")
-                    return
-            else:
-                if not product_data["product_code"]:
-                    QMessageBox.warning(self, "校验失败", "产品代号为必填项")
-                    return
 
-        # 4. 保存到数据库
         try:
-            if self.is_change_mode():
-                tech_status_id = self.db.insert_tech_status(product_id, tech_data)
-                log_content = f"更新技术状态 {product_data['product_code']}"
-                self.db.insert_change_log(tech_status_id, "update", log_content)
-                QMessageBox.information(self, "成功", "技术状态变更已记录！")
-                self.clear_form(keep_product=True)
-            else:
-                product_data['status'] = status
-                product_id = self.db.insert_product(product_data)
-                tech_status_id = self.db.insert_tech_status(product_id, tech_data)
-                log_content = f"创建产品 {product_data['product_code']}"
-                self.db.insert_change_log(tech_status_id, "create", log_content)
-                if status == 'draft':
-                    QMessageBox.information(self, "成功", "草稿已保存！")
-                else:
-                    QMessageBox.information(self, "成功", "产品状态录入成功！")
-                self.clear_form()
-                self.refresh_product_list()
+            tech_status_id = self.db.insert_tech_status(self.selected_product_id, tech_data)
+            log_content = f"更新技术状态 {self.product_code.text().strip()}"
+            self.db.insert_change_log(tech_status_id, "update", log_content)
+            QMessageBox.information(self, "成功", "技术状态变更已记录！")
+            self.clear_form()
             self.data_updated.emit()
-            
-        except ValueError as e:
-            QMessageBox.warning(self, "录入失败", str(e))
-        except Exception as e:
-            QMessageBox.critical(self, "系统错误", f"发生未知错误: {str(e)}")
+        except Exception as exc:
+            QMessageBox.critical(self, "系统错误", f"发生未知错误: {exc}")
 
-    def clear_form(self, keep_product=False):
-        """清空表单"""
-        if not keep_product:
-            self.product_code.clear()
-            self.product_name.clear()
-            self.batch_number.clear()
-            self.model.setCurrentIndex(0)
+    def clear_form(self):
         self.stage.clear()
         self.coord_order.clear()
         self.suggestion_order.clear()
@@ -478,49 +735,6 @@ class EntryWidget(QWidget):
         self.process_impl_status.clear()
         self.remark.clear()
         self.effective_date.setDate(QDate.currentDate())
-
-    def refresh_product_list(self):
-        self.product_selector.blockSignals(True)
-        self.product_selector.clear()
-        self.product_selector.addItem("请选择产品...", None)
-        products = self.db.search_products("")
-        for product in products:
-            label = f"{product['product_code']} - {product['product_name']}"
-            self.product_selector.addItem(label, product["id"])
-        self.product_selector.blockSignals(False)
-
-    def on_mode_changed(self, index):
-        change_mode = index == 1
-        self.product_selector.setEnabled(change_mode)
-        self.btn_draft.setEnabled(not change_mode)
-        for field in [self.product_code, self.product_name, self.batch_number, self.model]:
-            field.setEnabled(not change_mode)
-        if change_mode:
-            self.on_product_selected(self.product_selector.currentIndex())
-        else:
-            self.clear_form()
-
-    def on_product_selected(self, index):
-        if not self.is_change_mode():
-            return
-        product_id = self.product_selector.itemData(index)
-        if not product_id:
-            self.product_code.clear()
-            self.product_name.clear()
-            self.batch_number.clear()
-            self.model.setCurrentIndex(0)
-            return
-        data = self.db.get_product(product_id)
-        if not data:
-            return
-        self.product_code.setText(data.get("product_code", ""))
-        self.product_name.setText(data.get("product_name", ""))
-        self.batch_number.setText(data.get("batch_number", ""))
-        model_index = self.model.findText(data.get("model", ""))
-        self.model.setCurrentIndex(model_index if model_index >= 0 else 0)
-
-    def is_change_mode(self):
-        return self.mode_switch.currentIndex() == 1
-
-    def current_product_id(self):
-        return self.product_selector.currentData()
+        self.optional_group.setVisible(False)
+        self.btn_toggle_optional.setText("展开可选补充")
+        self.update_progressive_state()

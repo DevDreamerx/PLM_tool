@@ -394,6 +394,31 @@ class DatabaseManager:
         conn.close()
         return [dict(row) for row in rows]
 
+    def get_recent_changes(self, limit=8):
+        """获取最近变更记录"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT
+                cl.id,
+                cl.change_type,
+                cl.change_content,
+                cl.operator,
+                cl.created_at,
+                p.id AS product_id,
+                p.product_code,
+                p.product_name
+            FROM change_log cl
+            INNER JOIN tech_status ts ON cl.tech_status_id = ts.id
+            INNER JOIN product p ON ts.product_id = p.id
+            WHERE p.status != 'inactive'
+            ORDER BY cl.created_at DESC
+            LIMIT ?
+        ''', (limit,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
     def get_statistics(self):
         """获取统计数据"""
         conn = self.get_connection()
